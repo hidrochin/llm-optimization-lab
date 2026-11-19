@@ -46,7 +46,7 @@ class ModelConfig(StrictModel):
     id: str
     revision: str | None = None
     dtype: DType = "bfloat16"
-    # Gemma 4 is image-text-to-text; Qwen3-4B (R0) is a plain causal LM.
+    # Gemma 4, Qwen3.5 and Qwen3.6 are image-text-to-text; causal_lm is for text-only models.
     architecture: Literal["image_text_to_text", "causal_lm"] = "image_text_to_text"
     attn_implementation: str | None = None
     # Passed to the chat template, e.g. {enable_thinking: false} for Qwen3.
@@ -123,15 +123,21 @@ class QuantizationConfig(StrictModel):
     scheme: Literal["W4A16"] = "W4A16"
     algorithm: Literal["gptq", "awq"] = "gptq"
     # Modules left in BF16 (LLM Compressor syntax, `re:` for regex): lm_head, the non-language
-    # towers, and the Gemma 4 E-series per-layer embedding projection, which sits outside the
-    # decoder layers and gets no calibration data in the sequential pipeline.
+    # towers (Qwen names its vision tower `visual`), the Gemma 4 E-series per-layer embedding
+    # projection, which sits outside the decoder layers and gets no calibration data in the
+    # sequential pipeline, and the MoE router gates of Qwen3.5/3.6. Qwen's own GPTQ checkpoints
+    # also keep every `attn` module (including Gated DeltaNet `linear_attn`) in BF16; configs
+    # for those models add that (T-D09).
     ignore: list[str] = Field(
         default_factory=lambda: [
             "re:.*lm_head",
             "re:.*vision.*",
+            "re:.*visual.*",
             "re:.*audio.*",
             "re:.*multi_modal_projector.*",
             "re:.*per_layer_model_projection",
+            "re:.*mlp.gate$",
+            "re:.*shared_expert_gate$",
         ]
     )
     # sequential: one decoder layer on the GPU at a time (needed for large models), but the
