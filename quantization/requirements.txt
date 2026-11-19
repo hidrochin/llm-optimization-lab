@@ -1,0 +1,7 @@
+# LLM Compressor environment (track D), separate from training and vLLM:
+#   uv venv .venv-quant --python 3.11 && source .venv-quant/bin/activate
+#   uv pip install -e . -r quantization/requirements.txt
+# Pin llmcompressor to the version validated with Gemma 4 (T-D01).
+llmcompressor
+datasets
+torchvision  # the Gemma 4 processor needs it
