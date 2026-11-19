@@ -1,0 +1,237 @@
+"""Experiment config schema and loader.
+
+Every experiment is described by one YAML file under `configs/`. Unknown keys are
+rejected, so a typo fails at load time instead of being silently ignored mid-run.
+
+A config may start with `extends: <path>` (relative to the file) to inherit another
+config and override only some keys. This is how experiments change one variable
+against the reference config.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+from pathlib import Path
+from typing import Any, Literal
+
+import yaml
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+InputType = Literal["image", "spatial_text"]
+INPUT_TYPES: tuple[InputType, ...] = ("image", "spatial_text")
+Split = Literal["train", "validation", "test", "calibration", "benchmark"]
+DType = Literal["bfloat16", "float16", "float32"]
+
+_UNRESOLVED_VAR = re.compile(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?")
+
+
+class StrictModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+def expand_path(value: str | Path) -> Path:
+    """Expand `~` and `${ENV_VAR}` in a path; fail if a variable is not set.
+
+    Data and artifacts live in different places on different servers, so configs
+    refer to them through env vars such as `${LLMOPT_DATA_DIR}`.
+    """
+    expanded = os.path.expandvars(os.path.expanduser(str(value)))
+    if _UNRESOLVED_VAR.search(expanded):
+        raise ValueError(f"unresolved environment variable in path: {value!r}")
+    return Path(expanded)
+
+
+class ModelConfig(StrictModel):
+    id: str
+    revision: str | None = None
+    dtype: DType = "bfloat16"
+    # Gemma 4 is image-text-to-text; Qwen3-4B (R0) is a plain causal LM.
+    architecture: Literal["image_text_to_text", "causal_lm"] = "image_text_to_text"
+    attn_implementation: str | None = None
+    # Passed to the chat template, e.g. {enable_thinking: false} for Qwen3.
+    chat_template_kwargs: dict[str, Any] = Field(default_factory=dict)
+
+
+class DataConfig(StrictModel):
+    dir: Path = Field(
+        description="Dataset root: split .jsonl files and image paths are relative to it"
+    )
+    doc_types_dir: Path = Path("doc_types")
+    doc_types: list[str] = Field(default_factory=list, description="Empty means every doc type")
+    input_types: list[InputType] = Field(default_factory=lambda: list(INPUT_TYPES))
+
+    @field_validator("dir", "doc_types_dir", mode="before")
+    @classmethod
+    def _expand(cls, value: Any) -> Path:
+        return expand_path(value)
+
+
+class MethodConfig(StrictModel):
+    name: Literal["none", "lora", "qlora"] = "none"
+    quantization: Literal["nf4", "fp4"] | None = None
+    double_quant: bool = False
+    compute_dtype: DType = "bfloat16"
+
+    @model_validator(mode="after")
+    def _check_quantization(self) -> MethodConfig:
+        if self.name == "qlora" and self.quantization is None:
+            raise ValueError("method.quantization is required when method.name is 'qlora'")
+        if self.name != "qlora" and self.quantization is not None:
+            raise ValueError("method.quantization is only valid when method.name is 'qlora'")
+        return self
+
+
+class LoraConfig(StrictModel):
+    rank: int = Field(gt=0)
+    alpha: int = Field(gt=0)
+    dropout: float = Field(default=0.05, ge=0.0, lt=1.0)
+    # A list of module name suffixes, or one regex string (PEFT semantics).
+    target_modules: list[str] | str = Field(default_factory=list)
+    # PEFT `target_parameters`, for MoE experts stored as fused nn.Parameter (E10).
+    target_parameters: list[str] = Field(default_factory=list)
+    # Regex of modules that never get LoRA; defaults to the non-language towers.
+    exclude_modules: str | None = None
+    train_vision_encoder: bool = False
+
+
+class TrainingConfig(StrictModel):
+    learning_rate: float = Field(gt=0)
+    batch_size: int = Field(default=1, gt=0)
+    gradient_accumulation_steps: int = Field(default=1, gt=0)
+    epochs: float = Field(default=1, gt=0)
+    max_steps: int | None = Field(default=None, gt=0, description="Overrides epochs (smoke tests)")
+    max_seq_length: int = Field(gt=0)
+    gradient_checkpointing: bool = True
+    warmup_ratio: float = Field(default=0.03, ge=0, lt=1)
+    lr_scheduler: str = "cosine"
+    weight_decay: float = Field(default=0.0, ge=0)
+    max_grad_norm: float = Field(default=1.0, gt=0)
+    logging_steps: int = Field(default=10, gt=0)
+    eval_steps: int | None = Field(default=None, gt=0, description="None: no eval during training")
+    eval_samples: int = Field(default=200, gt=0, description="Validation subset used for eval loss")
+    save_steps: int | None = Field(default=None, gt=0, description="None: save only at the end")
+    max_train_samples: int | None = Field(default=None, gt=0, description="Smoke tests only")
+    # label_positions: apply lm_head only where labels != -100 (Risk 1); full: standard loss.
+    loss: Literal["label_positions", "full"] = "label_positions"
+    over_length: Literal["drop", "error"] = "drop"
+
+
+class QuantizationConfig(StrictModel):
+    # base | merged | quantized | merged:<run_id> | <local path or hub id>; see paths.py
+    source: str = "merged"
+    scheme: Literal["W4A16"] = "W4A16"
+    algorithm: Literal["gptq", "awq"] = "gptq"
+    # Modules left in BF16 (LLM Compressor syntax, `re:` for regex): lm_head, the non-language
+    # towers, and the Gemma 4 E-series per-layer embedding projection, which sits outside the
+    # decoder layers and gets no calibration data in the sequential pipeline.
+    ignore: list[str] = Field(
+        default_factory=lambda: [
+            "re:.*lm_head",
+            "re:.*vision.*",
+            "re:.*audio.*",
+            "re:.*multi_modal_projector.*",
+            "re:.*per_layer_model_projection",
+        ]
+    )
+    # sequential: one decoder layer on the GPU at a time (needed for large models), but the
+    # traced graph needs the same inputs for every sample, so it cannot mix image and
+    # spatial-text samples. basic: whole-model forward passes, any mix of inputs.
+    pipeline: Literal["sequential", "basic"] = "basic"
+    # Decoder layer class names for the sequential pipeline, e.g. ["Gemma4TextDecoderLayer"].
+    sequential_targets: list[str] | None = None
+    calibration_split: Split = "calibration"
+    # Input types used for calibration; None means data.input_types.
+    calibration_input_types: list[InputType] | None = None
+    num_calibration_samples: int = Field(default=128, gt=0)
+    max_seq_length: int = Field(default=32768, gt=0)
+
+
+class ServingConfig(StrictModel):
+    # base | merged | quantized | <kind>:<run_id> | <local path or hub id>; see paths.py
+    source: str = "base"
+    host: str = "127.0.0.1"
+    port: int = 8000
+    max_model_len: int = Field(gt=0)
+    max_num_seqs: int = Field(default=64, gt=0)
+    gpu_memory_utilization: float = Field(default=0.9, gt=0, le=1)
+    enable_prefix_caching: bool = True
+    kv_cache_dtype: Literal["auto", "fp8"] = "auto"
+    max_images_per_prompt: int = Field(default=1, ge=0)
+    extra_args: list[str] = Field(default_factory=list)
+    concurrency_levels: list[int] = Field(default_factory=lambda: [1, 8, 16, 32, 60])
+    warmup_requests: int = Field(default=4, ge=0)
+    request_timeout_s: float = Field(default=900, gt=0)
+
+    @property
+    def api_base(self) -> str:
+        return f"http://{self.host}:{self.port}/v1"
+
+
+class QualityTarget(StrictModel):
+    exact_match: float = Field(default=0.95, ge=0, le=1)
+    field_accuracy: float = Field(default=0.95, ge=0, le=1)
+
+
+class EvaluationConfig(StrictModel):
+    split: Split = "test"
+    quality_target: QualityTarget = Field(default_factory=QualityTarget)
+    batch_size: int = Field(default=1, gt=0)
+    temperature: float = Field(default=0.0, ge=0)
+    max_new_tokens: int = Field(default=2048, gt=0)
+
+
+class ExperimentConfig(StrictModel):
+    experiment_id: str
+    run_name: str
+    seed: int = 42
+    model: ModelConfig
+    data: DataConfig
+    method: MethodConfig = Field(default_factory=MethodConfig)
+    lora: LoraConfig | None = None
+    training: TrainingConfig | None = None
+    quantization: QuantizationConfig | None = None
+    serving: ServingConfig | None = None
+    evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
+
+    @property
+    def run_id(self) -> str:
+        return f"{self.experiment_id}_{self.run_name}"
+
+    @model_validator(mode="after")
+    def _check_sections(self) -> ExperimentConfig:
+        if self.method.name in ("lora", "qlora"):
+            missing = [name for name in ("lora", "training") if getattr(self, name) is None]
+            if missing:
+                raise ValueError(f"method '{self.method.name}' requires sections: {missing}")
+        return self
+
+
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Mappings merge recursively; lists and scalars in `override` replace `base`."""
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def load_raw_config(path: str | Path, _seen: tuple[Path, ...] = ()) -> dict[str, Any]:
+    """Read a YAML config and resolve its `extends` chain, without validating."""
+    path = Path(path).resolve()
+    if path in _seen:
+        raise ValueError(f"circular extends: {' -> '.join(str(p) for p in (*_seen, path))}")
+    with open(path, encoding="utf-8") as f:
+        raw = yaml.safe_load(f)
+    if not isinstance(raw, dict):
+        raise ValueError(f"{path}: config must be a YAML mapping")
+    parent = raw.pop("extends", None)
+    if parent is None:
+        return raw
+    return _deep_merge(load_raw_config(path.parent / parent, (*_seen, path)), raw)
+
+
+def load_config(path: str | Path) -> ExperimentConfig:
+    return ExperimentConfig.model_validate(load_raw_config(path))
