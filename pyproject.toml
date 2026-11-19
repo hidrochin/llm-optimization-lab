@@ -1,0 +1,62 @@
+[project]
+name = "llm-opt-lab"
+version = "0.1.0"
+description = "Fine-tuning, quantization and serving experiments for Gemma 4 information extraction on NVIDIA L40"
+readme = "README.md"
+requires-python = ">=3.11"
+# Core dependencies only. The core package must stay importable from all three
+# environments (training, LLM Compressor, vLLM), so heavy libraries such as torch,
+# transformers or vllm never go here.
+dependencies = [
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+    "rapidfuzz>=3.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "jsonschema>=4.0",
+]
+# Dataset tools (scripts/data/): `uv sync --group data`
+data = [
+    "datasets>=3.0",
+    "pillow>=10.0",
+    "jsonschema>=4.0",
+]
+# Training environment on the GPU servers: `uv sync --group train`.
+# T-B01 pins versions and points torch at the CUDA wheel index matching the server driver.
+train = [
+    "torch>=2.6",
+    "torchvision>=0.21",  # the Gemma 4 processor needs it (video processor)
+    "transformers>=5.0",
+    "accelerate>=1.0",
+    "peft>=0.17",
+    "bitsandbytes>=0.45; sys_platform == 'linux'",
+    "datasets>=3.0",
+    "pillow>=10.0",
+    "safetensors>=0.4",
+    "sentencepiece>=0.2",
+    "protobuf>=4.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/llm_opt_lab"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["llm_opt_lab", "conftest"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
