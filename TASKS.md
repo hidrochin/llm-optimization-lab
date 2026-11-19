@@ -24,12 +24,12 @@ them is a separate effort, split by doc type; the lead owns the shared data task
 
 | Member | Phase 1: validates and maintains | Phase 2: owns end to end | Answers |
 |--------|----------------------------------|--------------------------|:-------:|
-| Lead | Core package, dev set, data tasks | Integration, reviews, result tables, final recommendation | — |
-| A | SFT data, `train.py`, 32K training memory | **W1 LoRA BF16:** E0, E1, rank sweep, E3, E7; publishes the reference config | Q1 |
-| B | Training environment, model loading, `inspect_model.py`, HF predictor, `merge_adapter.py` | **W2 QLoRA and dense scale:** E2, QLoRA deployment options, E8, Unsloth (P2) | Q2 |
-| C | vLLM serve, vLLM predictor, benchmark harness | **Serving at 60:** production requirements, R0, KV cache / prefix caching / FP8 KV, serving sweep of every candidate | Q5 |
-| D | `quantize_w4a16.py`, `verify_quantized.py` | **W3 PTQ + W4 QAT:** E4, E5, E6, calibration and FP8 (P2) | Q3, Q4 |
-| E | MoE inspection, expert LoRA study, MoE quantization check | **W5 MoE:** E9, E10, E12, MoE serving vs dense | Q6 |
+| Lead | Core package, dev set, data tasks, `train_grpo.py` | **W6 RL (GRPO):** E18, E19; plus integration, reviews, result tables, final recommendation | Q8 |
+| A | SFT data, `train.py`, 32K training memory | **W1 LoRA BF16 and small models:** E0, E1, rank sweep, E3, E7, E13 (Qwen3.5-4B), E16 (Qwen3.5-2B, spatial text); publishes the reference config | Q1, Q7 |
+| B | Training environment, model loading, `inspect_model.py`, HF predictor, `merge_adapter.py`, the same tools on Qwen3.5 | **W2 QLoRA and medium models:** E2, QLoRA deployment options, E8, E14 (Qwen3.5-9B), E17 (NuExtract3), Unsloth (P2) | Q2, Q7 |
+| C | vLLM serve, vLLM predictor, benchmark harness | **Serving at 60:** production requirements, R0 (Qwen3.6-35B-A3B-FP8), KV cache / prefix caching / FP8 KV, serving sweep of every candidate, one model vs one per flow | Q5, Q7 |
+| D | `quantize_w4a16.py`, `verify_quantized.py`, the Qwen W4A16 recipe | **W3 PTQ + W4 QAT:** E4, E5, E6, W4A16 of every chosen candidate, calibration and FP8 (P2) | Q3, Q4 |
+| E | MoE inspection, expert LoRA study, MoE quantization check | **W5 MoE:** E9, E10, E12, R1 (production model W4A16), E15 (production model QLoRA), MoE serving vs dense | Q6 |
 
 Letters are placeholders until the team is fixed. Everyone is full-time and can ask
 anyone for help; the author of a tool reviews changes to it.
@@ -88,8 +88,9 @@ bottleneck in phase 2: queue long runs overnight.
 | M2 | Private data frozen | T-L03 and T-L04 done | ⬜ |
 | M3 | Reference config frozen | Rank sweep done (T-A05), adapter inference and merge verified (T-A06) | ⬜ |
 | M4 | Quantized model served at 60 | E4 evaluated (T-D04), latency curve up to 60 (T-C08) | ⬜ |
-| M5 | MoE question answered | T-E06 done | ⬜ |
-| M6 | Final recommendation | T-L09 done | ⬜ |
+| M5 | MoE question answered | T-E06 and T-E09 done | ⬜ |
+| M6 | RL question answered | T-L13 done | ⬜ |
+| M7 | Final recommendation | T-L09 done | ⬜ |
 
 Phase 2 starts for everyone at **M1 + M2**. A can start E0/E1 as soon as M2 is reached.
 
@@ -97,9 +98,9 @@ Phase 2 starts for everyone at **M1 + M2**. A can start E0/E1 as soon as M2 is r
 
 | Member | Day 1 | Needs |
 |--------|-------|-------|
-| Lead | T-L01 (dev set), T-003 | — |
+| Lead | T-L01 (dev set), T-003, then T-L10 (GRPO on an L40) | — |
 | A | T-A01 (with the smoke config) | Dev set from T-L01, environment from T-B01 |
-| B | T-B01, then T-B02 | — |
+| B | T-B01, then T-B02, T-B10 (Qwen3.5) | — |
 | C | T-C01, T-C05 | — |
 | D | T-D01 | — |
 | E | T-E01 | Training environment (T-B01) for `inspect_model.py` |
@@ -111,12 +112,14 @@ flowchart LR
     M1["M1 tools validated"] & M2["M2 private data frozen"] --> A03["T-A03 E0"] & A04["T-A04 E1 + tuning"]
     A04 --> A05["T-A05 rank sweep: reference frozen"]
     A05 --> A06["T-A06 E3 merge"] & A07["T-A07 E7 E4B"] & B05["T-B05 E2 QLoRA"] & D06["T-D06 E6 QAT + LoRA"] & E04["T-E04 E9"]
+    A05 --> A09["T-A09 E13 Qwen3.5-4B"] & B11["T-B11 E14 Qwen3.5-9B"] & L11["T-L11 E18 GRPO"]
     A06 --> D04["T-D04 E4 PTQ"]
-    M1 --> D05["T-D05 E5 QAT"] & C06["T-C06 R0 Qwen3-4B"] & C07["T-C07 KV cache"]
+    M1 --> D05["T-D05 E5 QAT"] & C06["T-C06 R0 Qwen3.6"] & C07["T-C07 KV cache"] & E09["T-E09 R1 W4A16"]
     B05 --> B06["T-B06 QLoRA deploy"]
     E04 --> E05["T-E05 E10"] --> E06["T-E06 MoE serving"]
-    D04 & D05 & D06 & A07 & B06 --> C08["T-C08 serving sweep"]
-    C08 & E06 --> L09["T-L09 final recommendation"]
+    L11 --> L12["T-L12 E19 GRPO → W4A16"]
+    D04 & D05 & D06 & A07 & A09 & B06 & B11 & E09 --> C08["T-C08 serving sweep"]
+    C08 & E06 & L12 --> L09["T-L09 final recommendation"]
 ```
 
 ---
@@ -216,8 +219,8 @@ metrics measure annotation style instead of model errors.
 
 **Owner:** Lead · **Depends on:** T-L03, T-B01 · **Priority:** P0 · **Estimate:** 0.5 day
 
-- [ ] `scripts/data/token_stats.py --config <E2B config> --split train --out reports/data_stats.md` (CPU is enough); repeat with the Qwen3 tokenizer for spatial text (R0)
-- [ ] Agree the image processor settings with A (they set the image token count)
+- [ ] `scripts/data/token_stats.py --config <E2B config> --split train --out reports/data_stats.md` (CPU is enough); repeat with the Qwen3.5 processor (`configs/dev/cord_qwen35_4b_base.yaml` pointed at private data)
+- [ ] Agree the image processor settings per model family with A: Gemma 4 has a fixed image token budget (70–1120), Qwen grows with resolution (one token per 32×32 px). Add `model.processor_kwargs` to the config and apply it in `load_processor` and in the vLLM command (`--mm-processor-kwargs`), so training, HF inference and serving see the same image (core PR)
 - [ ] Write `training.max_seq_length` and `evaluation.max_new_tokens` into the reference config (with A) and README §4; decide the over-length policy (drop or fail)
 - [ ] Note the system prompt share per doc type for C (prefix caching)
 
@@ -267,8 +270,60 @@ metrics measure annotation style instead of model errors.
 
 **Owner:** Lead (with all) · **Depends on:** every owner's report · **Priority:** P0 · **Estimate:** 2 days
 
-- [ ] Fill the [final decision table](README.md#13-final-decision-table); write `reports/final_recommendation.md` answering Q1–Q6, per-doc-type breakdown in an appendix
+- [ ] Fill the [final decision table](README.md#13-final-decision-table); write `reports/final_recommendation.md` answering Q1–Q8, per-doc-type breakdown in an appendix
 - [ ] Review with every owner before it goes to the leader
+
+### W6 — RL with extraction rewards (Q8)
+
+SFT teaches the output format and most values; RL with a verifiable reward then optimizes
+the metric itself. It is the same recipe as RLVR (Tulu 3), DeepSeek-R1's rule-based
+rewards and reinforcement fine-tuning services, with our evaluation scorer as the
+verifier. Reading: [docs/reading.md §7](docs/reading.md#7-rl-fine-tuning-w6).
+
+#### T-L10 · GRPO tool on GPU 🟡
+
+**Owner:** Lead · **Depends on:** T-L01, T-B01, a dev SFT adapter (T-A01) · **GPU:** L40 · **Priority:** P1 · **Estimate:** 2 days
+
+Drafted 2026-11-20: `src/llm_opt_lab/rewards.py`, `scripts/train_grpo.py`, the `rl:` config
+section, `configs/dev/cord_e2b_grpo_smoke.yaml`. Checked on CPU:
+- rewards equal the evaluation scorer (unit tests);
+- the prompt TRL rebuilds is token-identical to the SFT prompt, for image and spatial text;
+- SFT → GRPO continuing the SFT adapter runs end to end on tiny Gemma 4, Qwen3.5 and Qwen3.6 MoE models.
+
+Not run on a GPU yet.
+
+- [x] Rewards from the evaluation scorer: field accuracy, exact match, similarity (1 − NED), parse
+- [x] `train_grpo.py`: continues the SFT adapter (`rl.init_adapter`), one prompt group per generation batch (image and spatial text never mixed), completions never logged
+- [x] Tiny-model tests (`LLMOPT_RUN_TINY=1`)
+- [ ] On an L40: `scripts/train.py --config configs/dev/cord_e2b_lora_smoke.yaml`, then `scripts/train_grpo.py --config configs/dev/cord_e2b_grpo_smoke.yaml`; record peak VRAM, seconds per step, and whether `rewards/*/mean` rise in `train_log.jsonl`
+- [ ] Memory at real lengths: G completions of a 21K–32K prompt per step. If it does not fit: fewer generations (≥ 4), `training.batch_size: 1`, QLoRA
+- [ ] Generation speed: HF `generate` is slow for long prompts. Try `rl.use_vllm: true` (`vllm_mode: colocate`) in a separate `.venv-rl` with TRL's vLLM extra; never install vLLM in the training environment
+- [ ] `predict_hf.py --source adapter` and `evaluate.py` on the GRPO adapter; compare with the SFT adapter on the dev validation split
+
+**Done when:** a dev GRPO run trains, saves and evaluates on an L40, and the fixes are merged.
+
+#### T-L11 · E18 GRPO on the reference SFT adapter ⬜
+
+**Owner:** Lead · **Depends on:** T-L10, M3 (reference frozen) · **Priority:** P1 · **Estimate:** 4 days + GPU time
+
+- [ ] `configs/rl/gemma4_e2b_grpo.yaml`: `extends:` the reference, `rl.init_adapter: adapter:<E1 run id>`; tune on validation only
+- [ ] Reward weights (one variable per run): `field_accuracy` + `exact_match` (default) vs adding `similarity`; watch for reward hacking (e.g. dropping list items to avoid wrong ones)
+- [ ] Group size (4 / 8), `beta` 0 vs 0.01, learning rate (LoRA RL usually needs ~10× the full fine-tuning rate)
+- [ ] Final run on test: exact match and field accuracy vs the SFT start, by input type and doc type; training cost (GPU hours, peak VRAM)
+- [ ] If E2B already passes 95% after SFT: run E18 on the weakest candidate that misses it (e.g. Qwen3.5-2B on spatial text)
+
+#### T-L12 · E19 RL → merge → W4A16 → vLLM (P2) ⬜
+
+**Owner:** Lead · **Depends on:** T-L11, T-D04 · **Priority:** P2 · **Estimate:** 2 days
+
+- [ ] `merge_adapter.py`, then `quantize_w4a16.py` with D's recipe, serve with C's harness
+- [ ] Does the RL gain survive W4A16? Compare with E4 (SFT → W4A16)
+
+#### T-L13 · Q8 report ⬜
+
+**Owner:** Lead · **Depends on:** T-L11 · **Priority:** P1 · **Estimate:** 1 day
+
+- [ ] `reports/rl.md`: gain over SFT per metric and input type, cost, failure modes, recommendation
 
 ---
 
@@ -338,9 +393,24 @@ See [Risk 1](README.md#risk-1-training-memory-at-32k-context).
 
 #### T-A08 · Q1 report ⬜
 
-**Owner:** A · **Depends on:** T-A03–T-A07 · **Priority:** P0 · **Estimate:** 1 day
+**Owner:** A · **Depends on:** T-A03–T-A07, T-A09 · **Priority:** P0 · **Estimate:** 1 day
 
-- [ ] `reports/baseline.md`: VRAM and time at 32K, rank table, smallest rank at 95%, adapter vs merged, E2B vs E4B
+- [ ] `reports/baseline.md`: VRAM and time at 32K, rank table, smallest rank at 95%, adapter vs merged, E2B vs E4B vs Qwen3.5-4B
+
+#### T-A09 · E13 Qwen3.5-4B ⬜
+
+**Owner:** A · **Depends on:** T-A05, T-B10 · **Priority:** P1 · **Estimate:** 3 days
+
+- [ ] Zero-shot baseline first (`enable_thinking: false`), then LoRA: `extends:` the reference; `model.id`, `chat_template_kwargs` and `lora.target_modules` change (Qwen3.5 names: `q/k/v/o_proj`, `linear_attn.in_proj_qkv/in_proj_z/out_proj`, MLP; from T-B10)
+- [ ] Merge, W4A16 with D's Qwen recipe (T-D09), serve and benchmark with C's harness
+- [ ] Compare with E7 (Gemma 4 E4B) by input type: same size class, different family
+
+#### T-A10 · E16 Qwen3.5-2B on spatial text only (P2) ⬜
+
+**Owner:** A · **Depends on:** T-A09 · **Priority:** P2 · **Estimate:** 2 days
+
+- [ ] `data.input_types: [spatial_text]`; LoRA as E13; serve text-only (`serving.extra_args: [--language-model-only]`)
+- [ ] Does a 2B model reach 95% on spatial text? If yes, C evaluates a split deployment (T-C08)
 
 ---
 
@@ -381,6 +451,17 @@ See [Risk 1](README.md#risk-1-training-memory-at-32k-context).
 - [ ] `merge_adapter.py --verify 20` on a dev LoRA adapter and a dev QLoRA adapter (merged into BF16); record the BF16 tolerance
 - [ ] The merged checkpoint serves with vLLM (with C)
 
+#### T-B10 · The same tools on Qwen3.5 ⬜
+
+**Owner:** B · **Depends on:** T-B02 · **GPU:** L40 · **Priority:** P1 · **Estimate:** 2 days
+
+The tiny-model tests already pass on Qwen3.5 and Qwen3.6 MoE (CPU). On real weights:
+
+- [ ] `inspect_model.py --model-id Qwen/Qwen3.5-4B` (and 9B, 2B) → `reports/notes/model_structure.md`; confirm the LoRA targets in `configs/dev/cord_qwen35_4b_lora_smoke.yaml` and that nothing in `model.visual` gets LoRA
+- [ ] Load Qwen3.5-4B and 9B in BF16 and NF4; `predict_hf.py --config configs/dev/cord_qwen35_4b_base.yaml`; check that outputs contain no thinking block
+- [ ] `train.py --check-loss 8`, then the smoke run with `configs/dev/cord_qwen35_4b_lora_smoke.yaml`; adapter predict and merge
+- [ ] Note the speed of the Gated DeltaNet layers in HF (does it need the `flash-linear-attention` / `causal-conv1d` kernels? install them only if the training env pin allows)
+
 ### Phase 2
 
 #### T-B05 · E2 QLoRA NF4 ⬜
@@ -408,9 +489,23 @@ See [Risk 1](README.md#risk-1-training-memory-at-32k-context).
 
 **Owner:** B · **Priority:** P2 · **Estimate:** 2 days
 
+#### T-B11 · E14 Qwen3.5-9B ⬜
+
+**Owner:** B · **Depends on:** T-B05, T-B10 · **Priority:** P1 · **Estimate:** 3 days
+
+- [ ] Zero-shot baseline, then QLoRA NF4 (`extends:` the reference with Qwen's `model.id`, `chat_template_kwargs`, `lora.target_modules`); also try BF16 LoRA if it fits at 32K
+- [ ] Merge into BF16, W4A16 (T-D09), serve; compare with E13 (4B) and E8 (Gemma 4 12B)
+
+#### T-B12 · E17 NuExtract3 (P2) ⬜
+
+**Owner:** B · **Depends on:** T-B10 · **Priority:** P2 · **Estimate:** 2 days
+
+- [ ] Zero-shot in NuExtract3's own format: a template derived from each doc type's `schema.json` (`chat_template_kwargs.template`), on validation
+- [ ] If it beats Qwen3.5-4B zero-shot clearly: LoRA with our prompts as E13, then W4A16
+
 #### T-B09 · Q2 report ⬜
 
-**Owner:** B · **Depends on:** T-B05, T-B06 · **Priority:** P0 · **Estimate:** 1 day
+**Owner:** B · **Depends on:** T-B05, T-B06, T-B11 · **Priority:** P0 · **Estimate:** 1 day
 
 - [ ] `reports/lora_vs_qlora.md`: VRAM saved, training speed, accuracy vs 95%, adapter overhead, which 4-bit deployment keeps accuracy best
 
@@ -452,14 +547,16 @@ See [Risk 1](README.md#risk-1-training-memory-at-32k-context).
 
 **Owner:** C (with Lead) · **Depends on:** — · **Priority:** P0 · **Estimate:** 2 days (calendar time may be longer)
 
-Qwen3-4B production runs on one L40, but by our estimate 60 × 32K tokens needs ~290 GB
-of KV cache. Production must queue, use shorter contexts, or rely on prefix caching.
+Production serves Qwen3.6-35B-A3B-FP8 on one L40 for both flows. Its weights take 37.5 GB,
+so by our estimate only ~4–5 GB remain for KV cache: a handful of long requests at once.
+Production must queue or use shorter contexts.
 
-- [ ] Meet the people who run the Qwen3-4B service and the members who own that part
-- [ ] vLLM version and full serve command (`--max-model-len`, `--max-num-seqs`, `--gpu-memory-utilization`, `--kv-cache-dtype`, prefix caching, chunked prefill)
-- [ ] Real context and output length per request (p50/p95); are the 60 requests really concurrent at 21–32K tokens?
-- [ ] Current latency p50/p95 and the **acceptable p95 at 60 concurrent requests** (the SLO)
-- [ ] Arrival pattern (bursts of 60, steady rate, offline batches); Qwen3 thinking mode off?
+- [ ] Meet the people who run the Qwen3.6 service and the members who own that part
+- [ ] vLLM version and full serve command (`--max-model-len`, `--max-num-seqs`, `--gpu-memory-utilization`, `--kv-cache-dtype`, prefix caching, chunked prefill, `--limit-mm-per-prompt`, `--mm-processor-kwargs`)
+- [ ] From the server log: `GPU KV cache size: N tokens` and `Maximum concurrency`; peak `num_requests_waiting` under real load
+- [ ] Real context and output length per request (p50/p95), per flow; image resolution sent to the model; are the 60 requests really concurrent at 21–32K tokens?
+- [ ] Current latency p50/p95 per flow and the **acceptable p95 at 60 concurrent requests** (the SLO)
+- [ ] Arrival pattern (bursts of 60, steady rate, offline batches); thinking mode off?
 - [ ] Production postprocess code (for T-L05), system prompts and schemas per doc type (for T-L03)
 - [ ] Does the 95% target apply per doc type? (for T-L06)
 - [ ] Write `reports/production_reference.md`; update README §4
@@ -468,27 +565,28 @@ of KV cache. Production must queue, use shorter contexts, or rely on prefix cach
 
 ### Phase 2
 
-#### T-C06 · R0 Qwen3-4B reference ⬜
+#### T-C06 · R0 Qwen3.6-35B-A3B-FP8 reference ⬜
 
 **Owner:** C · **Depends on:** T-C05, M2 · **Priority:** P1 · **Estimate:** 2 days
 
-- [ ] `configs/qwen3_4b/baseline.yaml` (`architecture: causal_lm`, `chat_template_kwargs: {enable_thinking: false}`, `input_types: [spatial_text]`, production serve settings and prompts)
-- [ ] Accuracy on the spatial-text test split, and the same latency sweep
+- [ ] `configs/qwen36_35b_a3b/production.yaml`: `model.id: Qwen/Qwen3.6-35B-A3B-FP8`, `chat_template_kwargs: {enable_thinking: false}`, both input types, production serve settings and prompts
+- [ ] Accuracy on the test split by input type, and the same latency sweep: the reference every candidate is compared with
 
 #### T-C07 · KV cache, prefix caching, FP8 KV ⬜
 
 **Owner:** C · **Depends on:** M1, M2 · **Priority:** P1 · **Estimate:** 2 days
 
-- [ ] Real KV per request vs the [Risk 2](README.md#risk-2-kv-cache-at-60-concurrent-requests) estimate; maximum concurrent requests for E2B BF16, E2B W4A16, E4B W4A16
-- [ ] Prefix caching on vs off; `kv_cache_dtype: fp8` concurrency gain and accuracy delta
+- [ ] Real KV per request vs the [Risk 2](README.md#risk-2-kv-cache-at-60-concurrent-requests) estimate; maximum concurrent requests for E2B BF16, E2B W4A16, E4B W4A16, Qwen3.5-4B W4A16, R0
+- [ ] Prefix caching on vs off (experimental for Qwen's hybrid layers in vLLM); `kv_cache_dtype: fp8` concurrency gain and accuracy delta. On Qwen3.5/3.6, first check that FP8 KV cache gives correct outputs (reported broken for Gated DeltaNet models, vLLM issue #37554)
 - [ ] Replace the estimates in README Risk 2 with measured values
 
-#### T-C08 · Serving sweep and Q5 report ⬜
+#### T-C08 · Serving sweep and Q5 / Q7 report ⬜
 
-**Owner:** C · **Depends on:** candidates from A, B, D (and E) · **Priority:** P0 · **Estimate:** 2 days
+**Owner:** C · **Depends on:** candidates from A, B, D (and E) · **Priority:** P0 · **Estimate:** 3 days
 
-- [ ] Sweep every candidate reaching 95% to 60 concurrent requests on the same server settings; check p95 against the SLO
-- [ ] `reports/serving.md`: latency vs concurrency per candidate; which pipelines meet both the quality target and the SLO (Q5)
+- [ ] Sweep every candidate reaching 95% to 60 concurrent requests on the same server settings; check p95 against the SLO; R0 and R1 on the same plot
+- [ ] One model for both flows vs one model per flow (e.g. a small text-only model for spatial text from E16 + an image model), on one or two L40s, with the real mix of image and spatial-text requests
+- [ ] `reports/serving.md`: latency vs concurrency per candidate; which pipelines meet both the quality target and the SLO (Q5); which model per flow (Q7)
 
 #### T-C09 · Structured outputs and LoRA serving (P2) ⬜
 
@@ -523,6 +621,19 @@ of KV cache. Production must queue, use shorter contexts, or rely on prefix cach
 **Owner:** D · **Depends on:** T-D02, T-C03 · **Priority:** P0 · **Estimate:** 1 day
 
 - [ ] Base BF16 vs base W4A16 on the dev validation split through vLLM; table in `reports/quantization.md`
+
+#### T-D09 · W4A16 recipe for Qwen3.5 / Qwen3.6 ⬜
+
+**Owner:** D (with E) · **Depends on:** T-D02, T-B10 · **GPU:** L40 · **Priority:** P1 · **Estimate:** 2 days
+
+The default ignore list now keeps `visual` and the MoE router gates in BF16. Qwen's own
+GPTQ-Int4 checkpoint of Qwen3.5-35B-A3B also keeps every `attn` module (full attention and
+Gated DeltaNet `linear_attn`), `shared_expert` and `mtp` in BF16.
+
+- [ ] Quantize base Qwen3.5-4B on the dev set with the default ignore list plus `re:.*attn.*`; `verify_quantized.py` shows no packed `visual` tensor
+- [ ] Serve with vLLM (with C); accuracy vs BF16 on the dev validation split
+- [ ] Try quantizing `linear_attn` too: does vLLM load it (its `in_proj_a/b` layers have only 16–32 outputs) and is accuracy kept?
+- [ ] Write the recipe into `reports/notes/llmcompressor.md`; A, B, E reuse it for E13, E14, R1
 
 ### Phase 2
 
@@ -616,11 +727,29 @@ of KV cache. Production must queue, use shorter contexts, or rely on prefix cach
 
 - [ ] Only if E9 and E10 both miss 95%; measure the routing distribution before and after
 
+#### T-E09 · R1 production model in W4A16 ⬜
+
+**Owner:** E (with D) · **Depends on:** T-D09, T-C06 · **GPU:** L40 + ≥ 96 GB CPU RAM · **Priority:** P1 · **Estimate:** 3 days
+
+The cheapest possible speed-up: same model, same prompts, about 20 GB of weights instead
+of 37.5 GB, so more room for KV cache.
+
+- [ ] `inspect_model.py --model-id Qwen/Qwen3.6-35B-A3B`: experts fused or not, router and shared-expert names
+- [ ] `configs/qwen36_35b_a3b/w4a16.yaml`: `quantization.source: base` (`Qwen/Qwen3.6-35B-A3B`, BF16), `pipeline: sequential` with one input type, D's Qwen ignore list
+- [ ] Verify, serve, evaluate, benchmark to 60 against R0: accuracy delta and concurrency gain
+
+#### T-E10 · E15 QLoRA on the production model (P2) ⬜
+
+**Owner:** E · **Depends on:** T-E02, T-E09 · **Priority:** P2 · **Estimate:** 3 days
+
+- [ ] Same feasibility questions as T-E02 (expert parameters in 4-bit) on Qwen3.6-35B-A3B; go/no-go
+- [ ] If go: attention + shared expert first, then experts; merge on CPU into BF16, W4A16 as R1, serve
+
 #### T-E08 · Q6 report ⬜
 
-**Owner:** E · **Depends on:** T-E04–T-E06 · **Priority:** P1 · **Estimate:** 1 day
+**Owner:** E · **Depends on:** T-E04–T-E06, T-E09 · **Priority:** P1 · **Estimate:** 1 day
 
-- [ ] `reports/moe_lora.md`: feasible on an L40? attention vs experts? worth it vs dense?
+- [ ] `reports/moe_lora.md`: feasible on an L40? attention vs experts? worth it vs dense? How much does W4A16 alone gain on the production model (R1)?
 
 ---
 
@@ -641,12 +770,18 @@ Decisions made while working. Move settled ones into README §4.
 | 2026-11-20 | HF `Trainer` with our own collator and loss instead of TRL `SFTTrainer` (needed for answer-only labels on multimodal input and the label-position loss) | Lead | T-002 |
 | 2026-11-20 | One `scripts/inspect_model.py` for dense and MoE models (meta device, no weights downloaded) | Lead | T-002 |
 | 2026-11-20 | Quantization calibrates with the `basic` pipeline by default (mixed image + spatial text); `sequential` (large models) needs one input type | Lead | T-002 |
+| 2026-11-20 | Production model is Qwen3.6-35B-A3B-FP8 on one L40, both flows (not Qwen3-4B); R0 measures it, R1 quantizes it | Lead | T-C05 |
+| 2026-11-20 | Candidate models: Gemma 4 (E2B, E4B, 12B, 26B-A4B), Qwen3.5 (2B, 4B, 9B), NuExtract3, Qwen3.6-35B-A3B; reasons in `docs/models.md` | Lead | — |
+| 2026-11-20 | Speculative decoding (MTP, drafters) is out of scope: serving-only | Lead | — |
+| 2026-11-20 | The lead owns W6, RL with GRPO on top of SFT; TRL is used for GRPO only; the RL run continues the SFT adapter | Lead | T-L10 |
+| 2026-11-20 | `visual` (Qwen's vision tower) and MoE router gates are excluded from LoRA / W4A16 by default | Lead | T-D09 |
 
 ## Daily log
 
 One line per working day: task IDs, what moved, what is next or blocking. Newest on top.
 
 ### Lead
+- 2026-11-20 · Candidate models researched (`docs/models.md`), reading list (`docs/reading.md`), plan updated for Qwen3.5/3.6 (E13–E19, R1, Q7, Q8). T-L10 🟡: GRPO drafted and CPU-checked on tiny Gemma 4 / Qwen3.5 / Qwen3.6 MoE, paused before the GPU run. Next: T-L01, then the T-L10 GPU steps.
 - 2026-11-20 · T-002 ✅ phase-1 tool drafts (training, HF predict, merge, inspect, quantize, verify, vLLM serve/predict/benchmark, data tools), CPU-checked on tiny Gemma 4; TASKS.md restructured into two phases. Next: T-L01, T-003.
 - 2026-11-19 · T-001 ✅ core package, `TASKS.md`, README in English.
 

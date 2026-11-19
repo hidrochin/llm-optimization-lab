@@ -225,5 +225,8 @@ method: {name: qlora, quantization: nf4, double_quant: true}
 | `merged:<run_id>`, `quantized:<run_id>`, `adapter:<run_id>` | another run's artifact, e.g. E4 quantizes `merged:<E3 run id>` |
 | anything else | a local path or hub id, as is |
 
+`rl.init_adapter` takes `adapter:<run_id>` only: an RL run continues that SFT adapter, so
+its own adapter is again relative to `model.id` and every source above works for it.
+
 A vLLM server serves the model under the run id, so start it (`serve_vllm.py`) and query it
 (`predict_vllm.py`, `benchmark_api.py`) with the same config.
