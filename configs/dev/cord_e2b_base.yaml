@@ -1,0 +1,17 @@
+# Dev configs run on the public CORD v2 set to validate the phase-1 tools.
+# Their numbers are not research results; experiment IDs stay DEV.
+experiment_id: DEV
+run_name: cord_e2b_base
+seed: 42
+
+model:
+  id: google/gemma-4-E2B-it
+  dtype: bfloat16
+
+data:
+  dir: ${LLMOPT_DATA_DIR}/public/cord
+  doc_types: [cord_receipt]
+
+evaluation:
+  split: test
+  max_new_tokens: 1024

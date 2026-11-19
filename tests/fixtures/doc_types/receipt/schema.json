@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "receipt",
+  "type": "object",
+  "properties": {
+    "store": {
+      "type": "object",
+      "properties": {
+        "name": { "type": ["string", "null"] },
+        "address": { "type": ["string", "null"] }
+      },
+      "required": ["name", "address"]
+    },
+    "date": { "type": ["string", "null"], "x-field-type": "date" },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": ["string", "null"] },
+          "quantity": { "type": ["number", "null"], "x-field-type": "number" },
+          "price": { "type": ["number", "null"], "x-field-type": "number" }
+        },
+        "required": ["name", "quantity", "price"]
+      }
+    },
+    "total": { "type": ["number", "null"], "x-field-type": "number" }
+  },
+  "required": ["store", "date", "items", "total"]
+}

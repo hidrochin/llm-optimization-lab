@@ -1,0 +1,17 @@
+# A few GRPO steps on top of the dev SFT adapter (run cord_e2b_lora_smoke.yaml first).
+# Checks the RL loop: generation, rewards from the scorer, adapter saving. Runs on an L40.
+extends: cord_e2b_lora_smoke.yaml
+run_name: cord_e2b_grpo_smoke
+
+training:
+  learning_rate: 1.0e-5
+  batch_size: 1
+  gradient_accumulation_steps: 4   # one prompt (4 completions) per optimizer step
+  max_steps: 10
+  max_train_samples: 32
+  eval_steps: null                 # evaluate the adapter with predict_hf.py instead
+
+rl:
+  init_adapter: adapter:DEV_cord_e2b_lora_smoke
+  num_generations: 4
+  max_completion_length: 1024

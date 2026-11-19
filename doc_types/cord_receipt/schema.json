@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "cord_receipt",
+  "description": "Public dev doc type built from CORD v2 (scripts/data/convert_cord.py). Values are strings as printed.",
+  "type": "object",
+  "properties": {
+    "menu": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": ["string", "null"] },
+          "count": { "type": ["string", "null"], "x-field-type": "number" },
+          "unit_price": { "type": ["string", "null"], "x-field-type": "number" },
+          "price": { "type": ["string", "null"], "x-field-type": "number" }
+        },
+        "required": ["name", "count", "unit_price", "price"],
+        "additionalProperties": false
+      }
+    },
+    "subtotal": {
+      "type": "object",
+      "properties": {
+        "subtotal_price": { "type": ["string", "null"], "x-field-type": "number" },
+        "discount_price": { "type": ["string", "null"], "x-field-type": "number" },
+        "service_price": { "type": ["string", "null"], "x-field-type": "number" },
+        "tax_price": { "type": ["string", "null"], "x-field-type": "number" }
+      },
+      "required": ["subtotal_price", "discount_price", "service_price", "tax_price"],
+      "additionalProperties": false
+    },
+    "total": {
+      "type": "object",
+      "properties": {
+        "total_price": { "type": ["string", "null"], "x-field-type": "number" },
+        "cash_price": { "type": ["string", "null"], "x-field-type": "number" },
+        "change_price": { "type": ["string", "null"], "x-field-type": "number" },
+        "credit_card_price": { "type": ["string", "null"], "x-field-type": "number" }
+      },
+      "required": ["total_price", "cash_price", "change_price", "credit_card_price"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["menu", "subtotal", "total"],
+  "additionalProperties": false
+}

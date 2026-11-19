@@ -1,0 +1,19 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  core:
+    # CPU-only checks; GPU work never runs in CI (tests/test_hf_tiny.py is skipped here).
+    # On GitHub Enterprise, replace `ubuntu-latest` with the runner label your org provides (T-003).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run pytest

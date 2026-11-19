@@ -1,0 +1,13 @@
+# LoRA smoke test on Qwen3.5-4B. Same training settings as the Gemma smoke test.
+extends: cord_e2b_lora_smoke.yaml
+run_name: cord_qwen35_4b_lora_smoke
+
+model:
+  id: Qwen/Qwen3.5-4B
+  chat_template_kwargs: {enable_thinking: false}
+
+lora:
+  # Full attention (every 4th layer), Gated DeltaNet linear attention, and MLP projections,
+  # as listed by scripts/inspect_model.py on Qwen3.5. Confirm before any real run (T-B10).
+  target_modules: [q_proj, k_proj, v_proj, o_proj, in_proj_qkv, in_proj_z, out_proj,
+                   gate_proj, up_proj, down_proj]

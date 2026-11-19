@@ -1,0 +1,7 @@
+# vLLM serving environment (track C), separate from training and LLM Compressor:
+#   uv venv .venv-vllm --python 3.11 && source .venv-vllm/bin/activate
+#   uv pip install -e . -r inference/requirements.txt
+# Pin vllm to the first version validated to serve Gemma 4 (T-C01).
+vllm
+openai
+httpx

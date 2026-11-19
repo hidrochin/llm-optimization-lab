@@ -1,0 +1,17 @@
+# Environments
+.venv*/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Private data and large outputs: never commit (anchored to the repo root so
+# tests/fixtures/data/ and scripts/data/ are still tracked)
+/data/
+/artifacts/
+/third_party/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
