@@ -39,6 +39,7 @@ train = [
     "safetensors>=0.4",
     "sentencepiece>=0.2",
     "protobuf>=4.0",
+    "trl>=1.18",
 ]
 
 [build-system]

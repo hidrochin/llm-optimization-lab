@@ -174,6 +174,53 @@ class ServingConfig(StrictModel):
         return f"http://{self.host}:{self.port}/v1"
 
 
+class RewardWeights(StrictModel):
+    """Weight of each reward component (see `rewards.py`). A weight of 0 keeps the component
+    in the training log without optimizing it."""
+
+    field_accuracy: float = Field(default=1.0, ge=0)
+    exact_match: float = Field(default=1.0, ge=0)
+    similarity: float = Field(default=0.0, ge=0)
+    parse: float = Field(default=0.0, ge=0)
+
+
+class RLConfig(StrictModel):
+    """RL fine-tuning with GRPO on a LoRA adapter (`scripts/train_grpo.py`).
+
+    Learning rate, schedule and batch sizes come from `training`: `batch_size` completions
+    per forward pass, `gradient_accumulation_steps` forward passes per optimizer step. One
+    generation batch holds the `num_generations` completions of a single prompt, so image
+    and spatial-text prompts are never mixed in a batch.
+    """
+
+    algorithm: Literal["grpo"] = "grpo"
+    # `adapter:<run id>` keeps training that run's SFT adapter, so the result is again an
+    # adapter on `model.id`. None trains a new LoRA from the `lora` section.
+    init_adapter: str | None = None
+    num_generations: int = Field(default=8, ge=2)
+    max_completion_length: int | None = Field(
+        default=None, gt=0, description="None: evaluation.max_new_tokens"
+    )
+    temperature: float = Field(default=1.0, gt=0)
+    top_p: float = Field(default=1.0, gt=0, le=1)
+    beta: float = Field(default=0.0, ge=0, description="KL coefficient against the start policy")
+    loss_type: Literal["dapo", "dr_grpo", "grpo", "bnpo"] = "dapo"
+    scale_rewards: Literal["group", "batch", "none"] = "group"
+    mask_truncated_completions: bool = False
+    reward_weights: RewardWeights = Field(default_factory=RewardWeights)
+    # vLLM generation needs vLLM in the same environment (the RL environment, never `train`).
+    use_vllm: bool = False
+    vllm_mode: Literal["colocate", "server"] = "colocate"
+    vllm_gpu_memory_utilization: float = Field(default=0.3, gt=0, le=1)
+
+    @field_validator("init_adapter")
+    @classmethod
+    def _adapter_source(cls, value: str | None) -> str | None:
+        if value is not None and not (value.startswith("adapter:") and len(value) > 8):
+            raise ValueError("rl.init_adapter must be 'adapter:<run id>'")
+        return value
+
+
 class QualityTarget(StrictModel):
     exact_match: float = Field(default=0.95, ge=0, le=1)
     field_accuracy: float = Field(default=0.95, ge=0, le=1)
@@ -198,6 +245,7 @@ class ExperimentConfig(StrictModel):
     training: TrainingConfig | None = None
     quantization: QuantizationConfig | None = None
     serving: ServingConfig | None = None
+    rl: RLConfig | None = None
     evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
 
     @property
@@ -210,6 +258,17 @@ class ExperimentConfig(StrictModel):
             missing = [name for name in ("lora", "training") if getattr(self, name) is None]
             if missing:
                 raise ValueError(f"method '{self.method.name}' requires sections: {missing}")
+        if self.rl is not None:
+            if self.method.name not in ("lora", "qlora"):
+                raise ValueError("rl trains a LoRA adapter: method.name must be lora or qlora")
+            per_step = self.training.batch_size * self.training.gradient_accumulation_steps
+            if self.rl.num_generations % self.training.batch_size:
+                raise ValueError("rl.num_generations must be a multiple of training.batch_size")
+            if per_step % self.rl.num_generations:
+                raise ValueError(
+                    "training.batch_size * gradient_accumulation_steps must be a multiple of "
+                    "rl.num_generations, so every optimizer step holds whole prompt groups"
+                )
         return self
 
 

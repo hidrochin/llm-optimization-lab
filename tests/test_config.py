@@ -41,6 +41,22 @@ def test_qlora_requires_quantization():
         ExperimentConfig.model_validate({**BASE, "method": {"name": "qlora"}})
 
 
+def test_rl_section_defaults_and_checks():
+    rl = {"init_adapter": "adapter:E1_gemma4_e2b_lora_r16", "num_generations": 4}
+    training = {**BASE["training"], "gradient_accumulation_steps": 8}
+    config = ExperimentConfig.model_validate({**BASE, "training": training, "rl": rl})
+    assert config.rl.loss_type == "dapo" and config.rl.reward_weights.exact_match == 1.0
+
+    with pytest.raises(ValidationError, match="method.name must be lora or qlora"):
+        ExperimentConfig.model_validate({**BASE, "method": {"name": "none"}, "rl": rl})
+    with pytest.raises(ValidationError, match="whole prompt groups"):
+        ExperimentConfig.model_validate({**BASE, "rl": rl})  # 1 x 1 completions per step
+    with pytest.raises(ValidationError, match="adapter:<run id>"):
+        ExperimentConfig.model_validate(
+            {**BASE, "training": training, "rl": {**rl, "init_adapter": "merged:E3"}}
+        )
+
+
 def test_expand_path(monkeypatch):
     monkeypatch.setenv("LLMOPT_DATA_DIR", "/srv/data")
     assert str(expand_path("${LLMOPT_DATA_DIR}/v1")) == "/srv/data/v1"
