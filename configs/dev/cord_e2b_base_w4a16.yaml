@@ -1,0 +1,18 @@
+# Base E2B quantized to W4A16, then served: checks the quantization path end to end.
+extends: cord_e2b_base.yaml
+run_name: cord_e2b_base_w4a16
+
+quantization:
+  source: base
+  algorithm: gptq
+  num_calibration_samples: 32
+  max_seq_length: 8192
+  # Decoder layer class from scripts/inspect_model.py (Gemma4TextDecoderLayer on the
+  # tiny Gemma 4 test model), for sequential calibration:
+  # sequential_targets: [Gemma4TextDecoderLayer]
+
+serving:
+  source: quantized
+  max_model_len: 16384
+  max_num_seqs: 32
+  concurrency_levels: [1, 8, 16]

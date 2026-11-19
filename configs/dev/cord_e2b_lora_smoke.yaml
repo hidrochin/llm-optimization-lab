@@ -1,0 +1,24 @@
+# A few LoRA steps: checks data, masking, loss, adapter saving. Runs on a ~24 GB GPU.
+extends: cord_e2b_base.yaml
+run_name: cord_e2b_lora_smoke
+
+method:
+  name: lora
+
+lora:
+  rank: 16
+  alpha: 32
+  dropout: 0.05
+  # Usual Gemma language-model projections. Confirm with scripts/inspect_model.py and the
+  # gemma-skills template (T-B02) before any real run.
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+training:
+  learning_rate: 2.0e-4
+  gradient_accumulation_steps: 4
+  max_steps: 20
+  max_train_samples: 64
+  max_seq_length: 8192
+  logging_steps: 1
+  eval_steps: 10
+  eval_samples: 16

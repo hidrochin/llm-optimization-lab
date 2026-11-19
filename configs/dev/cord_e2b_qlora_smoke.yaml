@@ -1,0 +1,9 @@
+# Same as the LoRA smoke test, with the base model in NF4.
+extends: cord_e2b_lora_smoke.yaml
+run_name: cord_e2b_qlora_smoke
+
+method:
+  name: qlora
+  quantization: nf4
+  double_quant: true
+  compute_dtype: bfloat16

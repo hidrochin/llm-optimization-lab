@@ -1,0 +1,12 @@
+# Official Gemma QAT W4A16 compressed-tensors checkpoint served by vLLM (checkpoint B of E5).
+extends: cord_e2b_base.yaml
+run_name: cord_e2b_qat_w4a16ct_vllm
+
+model:
+  id: google/gemma-4-E2B-it-qat-w4a16-ct
+
+serving:
+  source: base
+  max_model_len: 16384
+  max_num_seqs: 32
+  concurrency_levels: [1, 8, 16]

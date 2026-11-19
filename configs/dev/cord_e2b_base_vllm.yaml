@@ -1,0 +1,9 @@
+# Base E2B served by vLLM: checks serving, predictions through the API, and the benchmark.
+extends: cord_e2b_base.yaml
+run_name: cord_e2b_base_vllm
+
+serving:
+  source: base
+  max_model_len: 16384
+  max_num_seqs: 32
+  concurrency_levels: [1, 8, 16]
