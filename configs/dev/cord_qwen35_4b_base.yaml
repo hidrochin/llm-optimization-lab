@@ -1,0 +1,8 @@
+# Qwen3.5-4B on the dev set: validates the tools on the Qwen3.5/3.6 architecture
+# (Gated DeltaNet + attention, `model.visual` vision tower). Thinking is off, as in production.
+extends: cord_e2b_base.yaml
+run_name: cord_qwen35_4b_base
+
+model:
+  id: Qwen/Qwen3.5-4B
+  chat_template_kwargs: {enable_thinking: false}

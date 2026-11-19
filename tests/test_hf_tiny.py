@@ -1,15 +1,17 @@
-"""HF code on a tiny random Gemma 4 model, on CPU.
+"""HF code on tiny random Gemma 4, Qwen3.5 and Qwen3.6 MoE models, on CPU.
 
-Skipped unless LLMOPT_RUN_TINY=1 (downloads ~70 MB) and the train group is installed:
+Skipped unless LLMOPT_RUN_TINY=1 (downloads ~200 MB) and the train group is installed:
     LLMOPT_RUN_TINY=1 uv run --group train pytest tests/test_hf_tiny.py
 """
 
 import importlib.util
+import json
 import os
 import shutil
 from pathlib import Path
 
 import pytest
+import yaml
 
 if os.environ.get("LLMOPT_RUN_TINY") != "1":
     pytest.skip("set LLMOPT_RUN_TINY=1 to run", allow_module_level=True)
@@ -25,28 +27,54 @@ from llm_opt_lab.hf.sft_data import IGNORE_INDEX, SFTCollator, build_features  #
 from llm_opt_lab.paths import ModelSource  # noqa: E402
 from llm_opt_lab.prompting import serialize_target  # noqa: E402
 
-TINY = "trl-internal-testing/tiny-Gemma4ForConditionalGeneration"
+ROOT = Path(__file__).parents[1]
+# The "Think" Qwen variants use the real Qwen3.5/3.6 chat template; production turns
+# thinking off, as the configs do.
+MODELS = {
+    "gemma4": ("trl-internal-testing/tiny-Gemma4ForConditionalGeneration", {}),
+    "qwen3_5": (
+        "trl-internal-testing/tiny-Qwen3_5ForConditionalGeneration-Think",
+        {"enable_thinking": False},
+    ),
+    "qwen3_6_moe": (
+        "trl-internal-testing/tiny-Qwen3_5MoeForConditionalGeneration-3.6",
+        {"enable_thinking": False},
+    ),
+}
 
 
-@pytest.fixture(scope="module")
-def env(tmp_path_factory):
+def load_script(relative: str):
+    spec = importlib.util.spec_from_file_location(Path(relative).stem, ROOT / relative)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.fixture(scope="module", params=list(MODELS))
+def env(request, tmp_path_factory):
     from PIL import Image
 
+    model_id, chat_template_kwargs = MODELS[request.param]
     data_dir = tmp_path_factory.mktemp("data")
-    shutil.copy(DATA_DIR / "test.jsonl", data_dir / "test.jsonl")
+    for split in ("train", "test"):
+        shutil.copy(DATA_DIR / "test.jsonl", data_dir / f"{split}.jsonl")
     (data_dir / "images").mkdir()
     Image.new("RGB", (224, 224), "white").save(data_dir / "images" / "receipt-001.png")
     config = ExperimentConfig.model_validate(
         {
             "experiment_id": "T",
             "run_name": "tiny",
-            "model": {"id": TINY, "dtype": "float32"},
+            "model": {
+                "id": model_id,
+                "dtype": "float32",
+                "chat_template_kwargs": chat_template_kwargs,
+            },
             "data": {"dir": str(data_dir), "doc_types_dir": str(DOC_TYPES_DIR)},
             "evaluation": {"max_new_tokens": 8},
         }
     )
     processor = load_processor(config)
-    model = load_model(config, ModelSource(TINY), device="cpu")
+    model = load_model(config, ModelSource(model_id), device="cpu")
     return {
         "config": config,
         "processor": processor,
@@ -64,7 +92,7 @@ def features(env, sample):
         env["processor"],
         env["data_dir"],
         text_only=False,
-        chat_template_kwargs={},
+        chat_template_kwargs=env["config"].model.chat_template_kwargs,
     )
 
 
@@ -78,11 +106,7 @@ def test_only_the_answer_is_trained(env):
 
 
 def test_label_position_loss_equals_full_loss(env):
-    spec = importlib.util.spec_from_file_location(
-        "train", Path(__file__).parents[1] / "scripts" / "train.py"
-    )
-    train = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(train)
+    train = load_script("scripts/train.py")
     collator = SFTCollator(env["processor"].tokenizer.pad_token_id)
     with torch.no_grad():
         for sample in env["samples"]:
@@ -100,3 +124,75 @@ def test_predictor_writes_a_prediction(env):
         prediction = predictor.predict(sample)
         assert prediction.id == sample.id and prediction.error is None
         assert 0 < prediction.completion_tokens <= 8
+
+
+def test_grpo_prompt_matches_the_sft_prompt(env):
+    """TRL rebuilds the prompt from our dataset row; the tokens must be the ones SFT used."""
+    from datasets import Dataset
+    from PIL import Image
+    from trl.data_utils import prepare_multimodal_messages
+
+    from llm_opt_lab.hf.sft_data import apply_template, chat_messages
+
+    train_grpo = load_script("scripts/train_grpo.py")
+    kwargs = env["config"].model.chat_template_kwargs
+    for sample in env["samples"]:
+        doc_type = env["doc_types"][sample.doc_type]
+        prompt, images = train_grpo.rl_prompt(sample, doc_type, env["data_dir"], text_only=False)
+        stored = Dataset.from_list([{"prompt": prompt}])[0]["prompt"]  # as the trainer reads it
+        rebuilt = prepare_multimodal_messages(stored, images=[Image.open(p) for p in images])
+        ours = chat_messages(sample, doc_type, env["data_dir"], text_only=False)
+        trl_ids, our_ids = (
+            apply_template(
+                env["processor"], m, add_generation_prompt=True, chat_template_kwargs=kwargs
+            )["input_ids"]
+            for m in (rebuilt, ours)
+        )
+        assert torch.equal(trl_ids, our_ids)
+
+
+def run_config(script: str, config: dict, directory: Path) -> int:
+    path = directory / f"{config['run_name']}.yaml"
+    path.write_text(yaml.safe_dump(config), encoding="utf-8")
+    return load_script(script).main(["--config", str(path)])
+
+
+def test_grpo_continues_the_sft_adapter(env, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # results/ is relative to the working directory
+    monkeypatch.setenv("LLMOPT_ARTIFACTS_DIR", str(tmp_path / "artifacts"))
+    model = env["config"].model
+    sft = {
+        "experiment_id": "T",
+        "run_name": "sft",
+        "model": {"id": model.id, "dtype": "float32",
+                  "chat_template_kwargs": model.chat_template_kwargs},
+        "data": {"dir": str(env["data_dir"]), "doc_types_dir": str(DOC_TYPES_DIR)},
+        "method": {"name": "lora"},
+        "lora": {"rank": 4, "alpha": 8, "target_modules": ["q_proj", "v_proj"]},
+        "training": {
+            "learning_rate": 1.0e-4,
+            "batch_size": 1,  # SFT batches cannot mix image and spatial-text samples
+            "gradient_accumulation_steps": 2,
+            "max_steps": 2,
+            "max_seq_length": 4096,
+            "logging_steps": 1,
+            "gradient_checkpointing": False,
+        },
+        "evaluation": {"max_new_tokens": 8},
+    }  # fmt: skip
+    assert run_config("scripts/train.py", sft, tmp_path) == 0
+    grpo = {
+        **sft,
+        "run_name": "grpo",
+        "training": {**sft["training"], "max_steps": 3},  # one prompt per step: all 3 samples
+        "rl": {"init_adapter": "adapter:T_sft", "num_generations": 2},
+    }
+    assert run_config("scripts/train_grpo.py", grpo, tmp_path) == 0
+
+    adapter = tmp_path / "artifacts" / "adapters" / "T_grpo"
+    assert (adapter / "adapter_model.safetensors").is_file()
+    log_lines = (tmp_path / "results/logs/T_grpo/train_log.jsonl").read_text().splitlines()
+    rewards = [e for e in map(json.loads, log_lines) if "rewards/exact_match/mean" in e]
+    assert rewards and all(0 <= e["rewards/field_accuracy/mean"] <= 1 for e in rewards)
+    metrics = json.loads((tmp_path / "results/metrics/T_grpo.json").read_text())
+    assert metrics["trainable_params"] > 0 and "train" in metrics["stages"]
