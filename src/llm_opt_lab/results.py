@@ -183,3 +183,15 @@ def record_metrics(
         json.dumps(metrics.model_dump(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
     return metrics
+
+
+def load_run_metrics(
+    metrics_dir: str | Path = "results/metrics", *, include_dev: bool = False
+) -> list[RunMetrics]:
+    """Every metrics file in `metrics_dir`, validated. Dev runs are left out unless asked:
+    they only validate tools and are never results."""
+    runs = [
+        RunMetrics.model_validate_json(path.read_text(encoding="utf-8"))
+        for path in sorted(Path(metrics_dir).glob("*.json"))
+    ]
+    return [run for run in runs if include_dev or run.experiment_id != "DEV"]
