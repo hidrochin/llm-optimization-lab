@@ -111,7 +111,7 @@ The estimate assumes vLLM keeps KV only within the window of sliding-window laye
 
 **Legend:** ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked · ⏭️ skipped
 
-**Start date:** `YYYY-MM-DD` · **Last updated:** `2026-11-20`
+**Start date:** `YYYY-MM-DD` · **Last updated:** `2026-11-26`
 
 | Milestone | Reached when | Status | Report |
 |-----------|--------------|:------:|--------|
@@ -373,6 +373,7 @@ Every stage merges its numbers into `results/metrics/<experiment_id>_<run_name>.
 | Training (GPU servers) | `uv sync --group train` (T-B01 pins it and sets the CUDA torch index) | `scripts/` with torch: train, train_grpo (HF generation), predict_hf, merge, inspect, token stats |
 | RL with vLLM generation | `.venv-rl` with TRL's vLLM extra, pinned in T-L10 | `scripts/train_grpo.py` with `rl.use_vllm: true` |
 | Data tools | `uv sync --group data` | `scripts/data/convert_cord.py` |
+| Figures | `uv sync --group report` | `scripts/plot_tradeoffs.py` |
 | LLM Compressor | `uv venv .venv-quant && uv pip install -e . -r quantization/requirements.txt` | `quantization/` |
 | vLLM | `uv venv .venv-vllm && uv pip install -e . -r inference/requirements.txt` | `inference/` |
 
@@ -430,6 +431,11 @@ python inference/serve_vllm.py --config configs/dev/cord_e2b_base_w4a16.yaml &  
 python inference/predict_vllm.py --config configs/dev/cord_e2b_base_w4a16.yaml
 python inference/benchmark_api.py --config configs/dev/cord_e2b_base_w4a16.yaml
 uv run python scripts/evaluate.py --config configs/dev/cord_e2b_base_w4a16.yaml
+
+# Tables, figures, error analysis (any machine; --include-dev for DEV runs)
+uv run python scripts/aggregate_results.py --include-dev
+uv run --group report python scripts/plot_tradeoffs.py --include-dev
+uv run python scripts/error_analysis.py --run DEV_cord_e2b_base_w4a16 --compare DEV_cord_e2b_base
 ```
 
 Every step writes to the run's standard paths ([docs/formats.md](docs/formats.md#7-run-paths)). After a scoring change, `uv run python scripts/reevaluate.py` re-scores every saved prediction.
@@ -495,7 +501,9 @@ llm-optimization-lab/
 │   ├── predict_hf.py                 base / adapter / merged / NF4, resumable
 │   ├── merge_adapter.py              merge into BF16 with --verify
 │   ├── data/                         convert_cord, validate, make_benchmark, token_stats
-│   └── aggregate_results.py, plot_tradeoffs.py, error_analysis.py   (T-L07)
+│   ├── aggregate_results.py          results/metrics → results/tables (CSV, experiment and final tables)
+│   ├── plot_tradeoffs.py             accuracy vs VRAM, training time, latency → results/figures (report env)
+│   └── error_analysis.py             worst fields, failure kinds, list order, run-vs-run diff → artifacts/eval
 │
 ├── quantization/                ✅ separate env: LLM Compressor
 │   ├── requirements.txt
@@ -684,6 +692,11 @@ Weekly summary. Day-to-day progress is in the [daily log](TASKS.md#daily-log).
 - **Done:** candidate models researched and listed per flow in [docs/models.md](docs/models.md): Qwen3.5 2B/4B/9B, NuExtract3, Qwen3.6-35B-A3B W4A16 and QLoRA added (E13–E17, R1); reading list in [docs/reading.md](docs/reading.md). The tools now exclude Qwen's `visual` tower from LoRA and W4A16, and the tiny-model tests cover Qwen3.5 and Qwen3.6 MoE. W6 (RL with GRPO, lead) is drafted: rewards from the evaluation scorer, `scripts/train_grpo.py`, CPU-checked end to end (SFT → GRPO) on all three tiny models.
 - **Findings:** no Qwen3.6 or Qwen3.8 model below 27B exists; Qwen3.5 (February 2026) is the newest small Qwen. The production model leaves only ~4–5 GB for KV cache on an L40, so memory, not compute, limits concurrency. A dense 9B needs ~3× the prefill compute of the 3B-active production model, so smaller is not automatically faster. Qwen's own GPTQ checkpoints keep attention (including Gated DeltaNet) in BF16.
 - **Next:** T-L01 dev set, then T-L10 (GRPO on an L40 with the dev SFT adapter).
+
+### Dev set and result tools · `2026-11-25`
+- **Done:** T-L01 (branch `T-L01-cord-dev-set`): CORD v2 converted, validated and split once by receipt (800 / 50 / 100 / 50, benchmark set of 100), license and hashes in `docs/datasets.md`; only the copy to the GPU servers is left. T-L07 (branch `T-L07-result-tables`): `aggregate_results.py`, `plot_tradeoffs.py` and `error_analysis.py`, tested on synthetic metrics and fixture evaluations, waiting for the first real metrics.
+- **Findings:** one CORD receipt annotated its subtotal twice and lost every subtotal value in conversion (fixed before the split). CORD's spatial text comes from ground-truth OCR boxes, so spatial-text scores on CORD are optimistic. `uv sync --group X` removes every group not listed: use `uv sync --all-groups` on a machine that needs several environments' packages.
+- **Next:** copy the dev set to the GPU servers; T-003 (GitHub Enterprise); T-L10 GPU steps once B has the training environment (T-B01).
 
 ### Week of `YYYY-MM-DD`
 - **Done:**

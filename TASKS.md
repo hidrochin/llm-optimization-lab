@@ -248,13 +248,14 @@ metrics measure annotation style instead of model errors.
 
 **Done when:** the decisions are in README §4.
 
-### T-L07 · Result tables, charts, error analysis ⬜
+### T-L07 · Result tables, charts, error analysis 🟡
 
 **Owner:** Lead · **Depends on:** first metrics files · **Priority:** P1 · **Estimate:** 3 days
 
-- [ ] `scripts/aggregate_results.py`: `results/metrics/*.json` → `results/tables/experiments.csv` and Markdown for the README matrix and final table
-- [ ] `scripts/plot_tradeoffs.py`: accuracy vs VRAM, training time and latency, with the 95% line → `results/figures/`
-- [ ] `scripts/error_analysis.py`: worst fields, wrong values, parse failures, and run-vs-run diffs from `artifacts/eval/`
+- [x] `scripts/aggregate_results.py`: `results/metrics/*.json` → `results/tables/experiments.csv` and Markdown for the README matrix and final table; flags runs with uncommitted code
+- [x] `scripts/plot_tradeoffs.py`: accuracy vs VRAM, training time and latency, with the 95% line → `results/figures/`
+- [x] `scripts/error_analysis.py`: worst fields, wrong values, parse failures, and run-vs-run diffs from `artifacts/eval/`; also failure kinds (missing, invented, near miss) and reordered list items for T-L06
+- [ ] Run on the first real metrics files (dev runs at M1) and adjust columns and figures to what the owners need
 
 **Done when:** one command regenerates every table and figure.
 
@@ -781,6 +782,7 @@ Decisions made while working. Move settled ones into README §4.
 One line per working day: task IDs, what moved, what is next or blocking. Newest on top.
 
 ### Lead
+- 2026-11-25 · T-L07 🟡: aggregate_results, plot_tradeoffs (`report` group, in CI), error_analysis, with tests on synthetic metrics and fixture evaluations. Next: run them on the first dev metrics.
 - 2026-11-20 · Candidate models researched (`docs/models.md`), reading list (`docs/reading.md`), plan updated for Qwen3.5/3.6 (E13–E19, R1, Q7, Q8). T-L10 🟡: GRPO drafted and CPU-checked on tiny Gemma 4 / Qwen3.5 / Qwen3.6 MoE, paused before the GPU run. Next: T-L01, then the T-L10 GPU steps.
 - 2026-11-20 · T-002 ✅ phase-1 tool drafts (training, HF predict, merge, inspect, quantize, verify, vLLM serve/predict/benchmark, data tools), CPU-checked on tiny Gemma 4; TASKS.md restructured into two phases. Next: T-L01, T-003.
 - 2026-11-19 · T-001 ✅ core package, `TASKS.md`, README in English.
