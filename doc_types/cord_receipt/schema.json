@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "cord_receipt",
-  "description": "Public dev doc type built from CORD v2 (scripts/data/convert_cord.py). Values are strings as printed.",
+  "description": "Public dev doc type built from CORD v2 (scripts/data/convert_cord.py): 12 of the CORD fields. Values are strings as printed.",
   "type": "object",
   "properties": {
     "menu": {
@@ -9,10 +9,29 @@
       "items": {
         "type": "object",
         "properties": {
-          "name": { "type": ["string", "null"] },
-          "count": { "type": ["string", "null"], "x-field-type": "number" },
-          "unit_price": { "type": ["string", "null"], "x-field-type": "number" },
-          "price": { "type": ["string", "null"], "x-field-type": "number" }
+          "name": {
+            "type": ["string", "null"],
+            "description": "Name of the purchased item.",
+            "examples": ["NASI PUTIH", "1001-Choco Bun"]
+          },
+          "count": {
+            "type": ["string", "null"],
+            "x-field-type": "number",
+            "description": "Quantity of the item, with any marker printed next to it.",
+            "examples": ["2", "1 x", "x1"]
+          },
+          "unit_price": {
+            "type": ["string", "null"],
+            "x-field-type": "number",
+            "description": "Price of one unit of the item.",
+            "examples": ["17,000", "22.000"]
+          },
+          "price": {
+            "type": ["string", "null"],
+            "x-field-type": "number",
+            "description": "Amount of the item line (quantity times unit price).",
+            "examples": ["20,000", "25.000"]
+          }
         },
         "required": ["name", "count", "unit_price", "price"],
         "additionalProperties": false
@@ -21,10 +40,30 @@
     "subtotal": {
       "type": "object",
       "properties": {
-        "subtotal_price": { "type": ["string", "null"], "x-field-type": "number" },
-        "discount_price": { "type": ["string", "null"], "x-field-type": "number" },
-        "service_price": { "type": ["string", "null"], "x-field-type": "number" },
-        "tax_price": { "type": ["string", "null"], "x-field-type": "number" }
+        "subtotal_price": {
+          "type": ["string", "null"],
+          "x-field-type": "number",
+          "description": "Sum of the items before tax, service charge and discounts.",
+          "examples": ["17,000", "27,272"]
+        },
+        "discount_price": {
+          "type": ["string", "null"],
+          "x-field-type": "number",
+          "description": "Discount on the whole receipt.",
+          "examples": ["-2,045", "(0)"]
+        },
+        "service_price": {
+          "type": ["string", "null"],
+          "x-field-type": "number",
+          "description": "Service charge.",
+          "examples": ["11,070", "21,600"]
+        },
+        "tax_price": {
+          "type": ["string", "null"],
+          "x-field-type": "number",
+          "description": "Tax amount, often labelled Tax, PB1 or PPN.",
+          "examples": ["2,727", "1,636"]
+        }
       },
       "required": ["subtotal_price", "discount_price", "service_price", "tax_price"],
       "additionalProperties": false
@@ -32,15 +71,41 @@
     "total": {
       "type": "object",
       "properties": {
-        "total_price": { "type": ["string", "null"], "x-field-type": "number" },
-        "cash_price": { "type": ["string", "null"], "x-field-type": "number" },
-        "change_price": { "type": ["string", "null"], "x-field-type": "number" },
-        "credit_card_price": { "type": ["string", "null"], "x-field-type": "number" }
+        "total_price": {
+          "type": ["string", "null"],
+          "x-field-type": "number",
+          "description": "Total amount due.",
+          "examples": ["20,000", "30.000"]
+        },
+        "cash_price": {
+          "type": ["string", "null"],
+          "x-field-type": "number",
+          "description": "Amount paid in cash.",
+          "examples": ["50,000", "100.000"]
+        },
+        "change_price": {
+          "type": ["string", "null"],
+          "x-field-type": "number",
+          "description": "Change given back to the customer.",
+          "examples": ["30.000", "4,000"]
+        },
+        "credit_card_price": {
+          "type": ["string", "null"],
+          "x-field-type": "number",
+          "description": "Amount paid by credit or debit card.",
+          "examples": ["113,000.00", "57.200"]
+        }
       },
       "required": ["total_price", "cash_price", "change_price", "credit_card_price"],
       "additionalProperties": false
     }
   },
   "required": ["menu", "subtotal", "total"],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "x-decoys": [
+    {"name": "container_number", "description": "Number of the shipping container."},
+    {"name": "port_of_loading", "description": "Port where the goods were loaded on the vessel."},
+    {"name": "invoice_due_date", "description": "Date by which the invoice must be paid."},
+    {"name": "consignee_name", "description": "Name of the party receiving the shipped goods."}
+  ]
 }

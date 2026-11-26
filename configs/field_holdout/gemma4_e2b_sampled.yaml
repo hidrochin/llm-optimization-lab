@@ -1,0 +1,12 @@
+# E20 arm B: the same SFT, but each draw of a sample asks for a random subset of its fields
+# (40% of draws ask for all of them), sometimes with decoys. The only change from arm A.
+extends: gemma4_e2b_fixed.yaml
+run_name: gemma4_e2b_sampled
+
+fields:
+  sampling:
+    full_rate: 0.4
+    min_fields: 1
+    decoy_rate: 0.3
+    max_decoys: 2
+    shuffle: true

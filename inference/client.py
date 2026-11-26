@@ -14,6 +14,7 @@ from openai import AsyncOpenAI
 from llm_opt_lab.config import ExperimentConfig
 from llm_opt_lab.data import Sample
 from llm_opt_lab.doc_types import DocType
+from llm_opt_lab.field_requests import Request
 from llm_opt_lab.prompting import Message, build_messages, to_openai_messages
 from llm_opt_lab.serving import RequestResult
 
@@ -27,8 +28,10 @@ def make_client(config: ExperimentConfig) -> AsyncOpenAI:
     )
 
 
-def request_messages(sample: Sample, doc_type: DocType, data_dir: str | Path) -> list[Message]:
-    return to_openai_messages(build_messages(sample, doc_type, data_dir))
+def request_messages(
+    sample: Sample, doc_type: DocType, data_dir: str | Path, request: Request
+) -> list[Message]:
+    return to_openai_messages(build_messages(sample, doc_type, data_dir, request=request))
 
 
 async def send_chat(

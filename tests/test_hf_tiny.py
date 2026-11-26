@@ -18,12 +18,19 @@ if os.environ.get("LLMOPT_RUN_TINY") != "1":
 torch = pytest.importorskip("torch")
 
 from conftest import DATA_DIR, DOC_TYPES_DIR  # noqa: E402
-from llm_opt_lab.config import ExperimentConfig  # noqa: E402
+from llm_opt_lab.config import ExperimentConfig, FieldSampling, FieldsConfig  # noqa: E402
 from llm_opt_lab.data import load_samples  # noqa: E402
 from llm_opt_lab.doc_types import load_doc_types  # noqa: E402
 from llm_opt_lab.hf.loading import load_model, load_processor  # noqa: E402
 from llm_opt_lab.hf.predictor import HFPredictor  # noqa: E402
-from llm_opt_lab.hf.sft_data import IGNORE_INDEX, SFTCollator, build_features  # noqa: E402
+from llm_opt_lab.hf.sft_data import (  # noqa: E402
+    IGNORE_INDEX,
+    SFTCollator,
+    SFTDataset,
+    build_features,
+)
+from llm_opt_lab.metrics import flatten  # noqa: E402
+from llm_opt_lab.parsing import parse_json_output  # noqa: E402
 from llm_opt_lab.paths import ModelSource  # noqa: E402
 from llm_opt_lab.prompting import serialize_target  # noqa: E402
 
@@ -105,6 +112,34 @@ def test_only_the_answer_is_trained(env):
         assert ("pixel_values" in f) == (sample.input_type == "image")
 
 
+def test_sampled_requests_train_on_the_requested_fields(env):
+    """Each draw asks for another field subset; the answer holds exactly those fields."""
+    fields = FieldsConfig(sampling=FieldSampling(full_rate=0.0, decoy_rate=1.0))
+    dataset = SFTDataset(
+        env["samples"][:1],
+        env["doc_types"],
+        env["processor"],
+        env["data_dir"],
+        text_only=False,
+        chat_template_kwargs=env["config"].model.chat_template_kwargs,
+        max_seq_length=8192,
+        fields=fields,
+        seed=1,
+    )
+    tokenizer = env["processor"].tokenizer
+    target = flatten(env["samples"][0].target)
+    answers = []
+    for _ in range(4):
+        labels = dataset[0]["labels"]  # the prefix check inside passes for every request
+        answer, _ = parse_json_output(tokenizer.decode(labels[labels != IGNORE_INDEX]))
+        leaves = flatten(answer)
+        decoys = [path for path in leaves if path not in target]
+        assert decoys and all(leaves[path] is None for path in decoys)
+        assert all(leaves[path] == target[path] for path in leaves if path in target)
+        answers.append(answer)
+    assert len({json.dumps(a, sort_keys=True) for a in answers}) > 1
+
+
 def test_label_position_loss_equals_full_loss(env):
     train = load_script("scripts/train.py")
     collator = SFTCollator(env["processor"].tokenizer.pad_token_id)
@@ -167,6 +202,7 @@ def test_grpo_continues_the_sft_adapter(env, tmp_path, monkeypatch):
         "model": {"id": model.id, "dtype": "float32",
                   "chat_template_kwargs": model.chat_template_kwargs},
         "data": {"dir": str(env["data_dir"]), "doc_types_dir": str(DOC_TYPES_DIR)},
+        "fields": {"sampling": {"decoy_rate": 0.5}},  # SFT and GRPO on sampled requests
         "method": {"name": "lora"},
         "lora": {"rank": 4, "alpha": 8, "target_modules": ["q_proj", "v_proj"]},
         "training": {

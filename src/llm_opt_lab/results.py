@@ -17,7 +17,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from llm_opt_lab.metrics import QualityStats
+from llm_opt_lab.metrics import FieldGroupStats, QualityStats
 
 
 class StageInfo(BaseModel):
@@ -70,9 +70,11 @@ class RunMetrics(BaseModel):
     field_accuracy: float | None = None
     ned_mean: float | None = None
     parse_rate: float | None = None
+    key_presence: float | None = None
     meets_target: bool | None = None
     by_input_type: dict[str, QualityStats] | None = None
     by_doc_type: dict[str, QualityStats] | None = None
+    by_field_group: dict[str, FieldGroupStats] | None = None  # seen / held_out / decoy
 
     # Training
     train_peak_vram_gb: float | None = None

@@ -30,16 +30,25 @@ def _fmt(value: float | None) -> str:
 def _row(name: str, stats: QualityStats) -> str:
     return (
         f"{name:<24}{stats.n:>7}  {_fmt(stats.exact_match):>8}  {_fmt(stats.field_accuracy):>8}"
-        f"  {_fmt(stats.ned_mean):>8}  {_fmt(stats.parse_rate):>8}"
+        f"  {_fmt(stats.ned_mean):>8}  {_fmt(stats.parse_rate):>8}  {_fmt(stats.key_presence):>8}"
     )
 
 
 def print_report(title: str, report: EvalReport, met: bool, n_worst: int = 10) -> None:
     print(title)
-    print(f"{'':<24}{'n':>7}  {'exact':>8}  {'field':>8}  {'ned':>8}  {'parse':>8}")
+    print(f"{'':<24}{'n':>7}  {'exact':>8}  {'field':>8}  {'ned':>8}  {'parse':>8}  {'keys':>8}")
     print(_row("overall", report.overall))
     for name, stats in {**report.by_input_type, **report.by_doc_type}.items():
         print(_row(name, stats))
+    if report.by_field_group:
+        print(f"{'field group':<24}{'fields':>7}  {'field':>8}  {'keys':>8}  {'missed':>8}"
+              f"  {'invented':>8}")  # fmt: skip
+        for name, group in report.by_field_group.items():
+            print(
+                f"{name:<24}{group.n_fields:>7}  {_fmt(group.field_accuracy):>8}"
+                f"  {_fmt(group.key_presence):>8}  {_fmt(group.missed_value_rate):>8}"
+                f"  {_fmt(group.invented_value_rate):>8}"
+            )
     if report.n_request_errors:
         print(f"request errors: {report.n_request_errors}")
     print(f"quality target: {'MET' if met else 'NOT MET'}")
@@ -68,7 +77,9 @@ def main(argv: list[str] | None = None) -> int:
     if not samples:
         parser.error(f"no samples in split {split!r} match the config filters")
     doc_types = load_doc_types(config.data.doc_types_dir, config.data.doc_types or None)
-    report = evaluate_predictions(samples, read_predictions(predictions_path), doc_types)
+    report = evaluate_predictions(
+        samples, read_predictions(predictions_path), doc_types, config.fields
+    )
     target = config.evaluation.quality_target
 
     write_eval_details(report, paths.eval_details(split))

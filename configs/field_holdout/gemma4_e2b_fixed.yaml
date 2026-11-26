@@ -1,0 +1,24 @@
+# E20 arm A: SFT where every sample asks for the same fields (every non-held-out field, in
+# registry order): one fixed prompt, as planned before 2026-11-26.
+extends: gemma4_e2b_base.yaml
+run_name: gemma4_e2b_fixed
+
+method:
+  name: lora
+
+lora:
+  rank: 16
+  alpha: 32
+  dropout: 0.05
+  # As the dev smoke config; use the reference targets once T-B02 has confirmed them.
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+training:
+  learning_rate: 2.0e-4
+  gradient_accumulation_steps: 8
+  epochs: 2
+  # Gemma's image token budget is fixed, so CORD fits easily. The Qwen3.5 processor gives up
+  # to 13.6K tokens per receipt image (token_stats.py, 2026-11-26): use 16384 for the Qwen run.
+  max_seq_length: 8192
+  eval_steps: 50
+  eval_samples: 50

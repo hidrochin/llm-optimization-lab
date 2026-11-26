@@ -1,0 +1,40 @@
+# E20 field holdout (T-L15): does SFT on sampled requests keep the trained fields and
+# extract fields it never saw, compared with SFT on one fixed request? It decides the
+# reference config's `fields.sampling` before M3.
+#
+# Data: CORD v2 relabelled with every field (public/cord_full, convert_cord.py
+# --relabel-from): the frozen dev split and inputs, human labels. Training never asks for the
+# four held-out fields; evaluation does. Two have a near sibling among the trained fields
+# (tax vs service, change vs cash), one is a printed count, one is a list sub-field.
+#
+# This config is the zero-shot point (Z1). Every config here evaluates the full request
+# (trained + held-out fields); the __seen, __held_out and __decoys configs change only the
+# request. Predict them with the arm's adapter:
+#   predict_hf.py --config gemma4_e2b_sampled__seen.yaml --source adapter:E20_gemma4_e2b_sampled
+experiment_id: E20
+run_name: gemma4_e2b_base
+seed: 42
+
+model:
+  id: google/gemma-4-E2B-it
+  dtype: bfloat16
+
+data:
+  dir: ${LLMOPT_DATA_DIR}/public/cord_full
+  doc_types: [cord_receipt_full]
+
+fields:
+  holdout:
+    cord_receipt_full:
+      - subtotal.tax_price
+      - total.change_price
+      - total.menu_quantity_count
+      - menu[].unit_price
+      # The first two decoys are asked in the __decoys condition only, so arm B cannot have
+      # learned their names; it trains with the other two.
+      - container_number
+      - port_of_loading
+
+evaluation:
+  split: test  # tune with --split validation; test once per final run (rule 1)
+  max_new_tokens: 2048  # every CORD field with sub-items; confirm with token_stats.py

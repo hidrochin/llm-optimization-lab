@@ -62,6 +62,45 @@ def test_evaluate_end_to_end(tmp_path, monkeypatch, samples):
     assert (worst_field["field"], worst_field["n"]) == ("total", 3)
 
 
+def test_only_requested_fields_are_scored_by_group(tmp_path, monkeypatch, samples):
+    """A field-holdout run: the prompt asked for every field plus a decoy; the report splits
+    seen, held-out and decoy fields."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("LLMOPT_ARTIFACTS_DIR", str(tmp_path / "artifacts"))
+    config = {
+        "experiment_id": "E20",
+        "run_name": "fixture",
+        "model": {"id": "m"},
+        "data": {"dir": str(DATA_DIR), "doc_types_dir": str(DOC_TYPES_DIR)},
+        "fields": {"holdout": {"receipt": ["total"]}, "decoys": 1},
+    }
+    (tmp_path / "config.yaml").write_text(yaml.safe_dump(config))
+    predictions = []
+    for sample in samples:
+        output = dict(sample.target, total=None, container_number="C-1")  # missed, invented
+        predictions.append(Prediction(id=sample.id, raw_output=json.dumps(output)))
+    # An older prediction that asked for two fields only: only those are scored.
+    predictions[2] = Prediction(
+        id=samples[2].id,
+        raw_output='{"date": "2026-01-06", "total": null}',
+        fields=["date", "total"],
+    )
+    write_predictions(tmp_path / "artifacts/predictions/E20_fixture/test.jsonl", predictions)
+
+    assert load_script().main(["--config", "config.yaml"]) == 0
+
+    metrics = json.loads((tmp_path / "results/metrics/E20_fixture.json").read_text())
+    assert metrics["n_fields"] == 2 * 11 + 2  # 10 leaves + a decoy per full request; 2 asked
+    groups = metrics["by_field_group"]
+    assert groups["seen"]["field_accuracy"] == 1.0
+    assert groups["held_out"] == {
+        "n_fields": 3, "field_accuracy": 0.0, "ned_mean": 1.0, "key_presence": 1.0,
+        "missed_value_rate": 1.0, "invented_value_rate": None,
+    }  # fmt: skip
+    assert groups["decoy"]["invented_value_rate"] == 1.0
+    assert metrics["exact_match"] == 0.0
+
+
 def test_missing_prediction_is_an_error(tmp_path, monkeypatch, samples):
     monkeypatch.chdir(tmp_path)
     config = {

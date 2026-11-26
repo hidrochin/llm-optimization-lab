@@ -1,0 +1,7 @@
+# E20 condition T1, arm sampled: ask for the trained fields only (no regression allowed).
+# predict_hf.py --config <this> --source adapter:E20_gemma4_e2b_sampled
+extends: gemma4_e2b_sampled.yaml
+run_name: gemma4_e2b_sampled__seen
+
+fields:
+  inference: seen

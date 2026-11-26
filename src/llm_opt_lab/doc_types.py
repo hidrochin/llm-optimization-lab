@@ -1,12 +1,19 @@
 """Document type registry.
 
-Each document type has its own system prompt and output schema, stored as
-`doc_types/<name>/system_prompt.md` and `doc_types/<name>/schema.json`.
+Each document type is a folder `doc_types/<name>/` with two files:
 
-The schema is a JSON Schema subset: `object` with `properties`, `array` with `items`,
-and leaves. A leaf may carry `"x-field-type"` (default "text") to select its
-normalizer in postprocess. Using JSON Schema keeps the door open for vLLM
-structured outputs (T-C09).
+- `schema.json`: the field registry, a JSON Schema subset (`object` with `properties`,
+  `array` with `items`, and leaves). A leaf may carry `description` and `examples`, which
+  the model sees in the system prompt; `"x-field-type"` (default "text"), which selects its
+  normalizer in postprocess; and `"x-mode"`: "extract" (default, a value printed on the
+  document) or "derive" (computed by business rules after extraction, never asked of the
+  model). The root may list `"x-decoys"`: fields that can never appear on this doc type.
+  Training and evaluation ask for them to teach and measure answering `null`.
+- `instructions.md`: what the document is and doc-type rules. It never lists fields: the
+  field list of the system prompt is generated from the registry (see prompting.py), so a
+  request can ask for any subset of the fields.
+
+Using JSON Schema keeps the door open for vLLM structured outputs (T-C09).
 """
 
 from __future__ import annotations
@@ -16,51 +23,117 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-SYSTEM_PROMPT_FILE = "system_prompt.md"
+INSTRUCTIONS_FILE = "instructions.md"
 SCHEMA_FILE = "schema.json"
 DEFAULT_FIELD_TYPE = "text"
+FIELD_MODES = ("extract", "derive")
+
+
+@dataclass(frozen=True)
+class FieldSpec:
+    """One leaf of the registry, or a decoy."""
+
+    path: str  # generic leaf path, lists as `[]`: `menu[].price`
+    field_type: str = DEFAULT_FIELD_TYPE
+    mode: str = "extract"
+    description: str = ""
+    examples: tuple[str, ...] = ()
+    decoy: bool = False
 
 
 @dataclass(frozen=True)
 class DocType:
     name: str
-    system_prompt: str
+    instructions: str
     schema: dict[str, Any]
+    fields: tuple[FieldSpec, ...] = ()  # registry order
+    decoys: tuple[FieldSpec, ...] = ()
     field_types: dict[str, str] = field(default_factory=dict)
 
     def field_type(self, generic_path: str) -> str:
         return self.field_types.get(generic_path, DEFAULT_FIELD_TYPE)
 
+    @property
+    def extract_fields(self) -> tuple[FieldSpec, ...]:
+        """The fields the model is asked for; `derive` fields come from business rules."""
+        return tuple(f for f in self.fields if f.mode == "extract")
 
-def schema_field_types(schema: dict[str, Any], prefix: str = "") -> dict[str, str]:
-    """Map every leaf's generic path (lists as `[]`) to its field type.
 
-    >>> schema_field_types({"type": "object", "properties": {
+def schema_fields(schema: dict[str, Any], prefix: str = "") -> list[FieldSpec]:
+    """Every leaf of the schema, in registry order.
+
+    >>> [f.path for f in schema_fields({"type": "object", "properties": {
     ...     "items": {"type": "array", "items": {"type": "object", "properties": {
-    ...         "price": {"type": "number", "x-field-type": "number"}}}}}})
-    {'items[].price': 'number'}
+    ...         "price": {"type": "string", "x-field-type": "number"}}}}}})]
+    ['items[].price']
     """
     if "properties" in schema:
-        result: dict[str, str] = {}
+        result: list[FieldSpec] = []
         for key, sub in schema["properties"].items():
-            result.update(schema_field_types(sub, f"{prefix}.{key}" if prefix else key))
+            result.extend(schema_fields(sub, f"{prefix}.{key}" if prefix else key))
         return result
     if isinstance(schema.get("items"), dict):
-        return schema_field_types(schema["items"], f"{prefix}[]")
-    return {prefix: schema.get("x-field-type", DEFAULT_FIELD_TYPE)}
+        return schema_fields(schema["items"], f"{prefix}[]")
+    mode = schema.get("x-mode", "extract")
+    if mode not in FIELD_MODES:
+        raise ValueError(f"{prefix}: x-mode must be one of {FIELD_MODES}, got {mode!r}")
+    return [
+        FieldSpec(
+            path=prefix,
+            field_type=schema.get("x-field-type", DEFAULT_FIELD_TYPE),
+            mode=mode,
+            description=schema.get("description", ""),
+            examples=tuple(str(e) for e in schema.get("examples", ())),
+        )
+    ]
+
+
+def schema_field_types(schema: dict[str, Any]) -> dict[str, str]:
+    """Map every leaf's generic path (lists as `[]`) to its field type."""
+    return {f.path: f.field_type for f in schema_fields(schema)}
+
+
+def schema_decoys(schema: dict[str, Any]) -> list[FieldSpec]:
+    decoys = []
+    top_level = set(schema.get("properties", {}))
+    for spec in schema.get("x-decoys", []):
+        name = spec["name"]
+        if not name.isidentifier() or name in top_level:
+            raise ValueError(f"decoy {name!r} must be a plain key that is not a schema field")
+        decoys.append(
+            FieldSpec(
+                path=name,
+                description=spec.get("description", ""),
+                examples=tuple(str(e) for e in spec.get("examples", ())),
+                decoy=True,
+            )
+        )
+    return decoys
 
 
 def load_doc_type(directory: str | Path) -> DocType:
     directory = Path(directory)
-    system_prompt = (directory / SYSTEM_PROMPT_FILE).read_text(encoding="utf-8").strip()
-    if not system_prompt:
-        raise ValueError(f"{directory / SYSTEM_PROMPT_FILE} is empty")
+    path = directory / INSTRUCTIONS_FILE
+    if not path.is_file():
+        hint = (
+            "; system_prompt.md was replaced by instructions.md without the field list "
+            "(docs/formats.md §2)"
+            if (directory / "system_prompt.md").is_file()
+            else ""
+        )
+        raise ValueError(f"{path} not found{hint}")
+    instructions = path.read_text(encoding="utf-8").strip()
+    if not instructions:
+        raise ValueError(f"{path} is empty")
     schema = json.loads((directory / SCHEMA_FILE).read_text(encoding="utf-8"))
+    fields = schema_fields(schema)
     return DocType(
         name=directory.name,
-        system_prompt=system_prompt,
+        instructions=instructions,
         schema=schema,
-        field_types=schema_field_types(schema),
+        fields=tuple(fields),
+        decoys=tuple(schema_decoys(schema)),
+        field_types={f.path: f.field_type for f in fields},
     )
 
 

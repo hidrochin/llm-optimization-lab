@@ -8,10 +8,13 @@ output is again a LoRA adapter on `model.id`: `predict_hf.py --source adapter`,
 `merge_adapter.py` and quantization work unchanged. Without it, a new LoRA from the `lora`
 section is trained on the base model.
 
+Each prompt asks for a training request (every annotated field, or a random subset with
+`fields.sampling`), and completions are scored on those fields only.
+
 Rewards are the components of `llm_opt_lab.rewards` (field accuracy, exact match,
-similarity, parse), weighted by `rl.reward_weights`; each one is logged as
-`rewards/<name>/mean` in train_log.jsonl. Completions are never printed or logged as text,
-because they contain private data.
+similarity, parse, value recall, null accuracy), weighted by `rl.reward_weights`; each one
+is logged as `rewards/<name>/mean` in train_log.jsonl. Completions are never printed or
+logged as text, because they contain private data.
 
 Writes the same outputs as `train.py`: the adapter to artifacts/adapters/<run_id>/, trainer
 checkpoints, results/logs/<run_id>/train_log.jsonl and training metrics.
@@ -22,6 +25,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import random
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +38,7 @@ from trl import GRPOConfig, GRPOTrainer
 from llm_opt_lab.config import ExperimentConfig, load_config
 from llm_opt_lab.data import Sample
 from llm_opt_lab.doc_types import DocType, load_doc_types
+from llm_opt_lab.field_requests import Request, project, training_request
 from llm_opt_lab.hf.loading import is_text_only, load_model, load_processor
 from llm_opt_lab.hf.sft_data import apply_template, chat_messages
 from llm_opt_lab.hf.training import (
@@ -51,14 +56,19 @@ log = logging.getLogger("train_grpo")
 
 
 def rl_prompt(
-    sample: Sample, doc_type: DocType, data_dir: Path, *, text_only: bool
+    sample: Sample,
+    doc_type: DocType,
+    data_dir: Path,
+    *,
+    text_only: bool,
+    request: Request | None = None,
 ) -> tuple[list[Message], list[str]]:
     """The prompt without image payloads, and the image paths TRL puts back into it.
 
     TRL fills each `{"type": "image"}` placeholder from the `images` column, so the model
     sees the same chat as in SFT and evaluation.
     """
-    messages = chat_messages(sample, doc_type, data_dir, text_only=text_only)
+    messages = chat_messages(sample, doc_type, data_dir, text_only=text_only, request=request)
     images: list[str] = []
     if not text_only:
         for message in messages:
@@ -69,9 +79,11 @@ def rl_prompt(
 
 
 def prompt_length(
-    sample: Sample, doc_type: DocType, processor: Any, config: ExperimentConfig
+    sample: Sample, doc_type: DocType, processor: Any, config: ExperimentConfig, request: Request
 ) -> int:
-    messages = chat_messages(sample, doc_type, config.data.dir, text_only=is_text_only(config))
+    messages = chat_messages(
+        sample, doc_type, config.data.dir, text_only=is_text_only(config), request=request
+    )
     inputs = apply_template(
         processor,
         messages,
@@ -88,26 +100,36 @@ def build_dataset(
     config: ExperimentConfig,
     max_completion_length: int,
 ) -> tuple[Dataset, list[str]]:
-    """Prompts plus the columns the rewards need; drops prompts that leave no room to answer."""
+    """Prompts plus the columns the rewards need; drops prompts that leave no room to answer.
+
+    Each prompt asks for one training request, drawn once per sample when
+    `fields.sampling` is set; every completion of the prompt is scored on those fields.
+    """
     text_only = is_text_only(config)
     budget = config.training.max_seq_length - max_completion_length
     rows: list[dict[str, Any]] = []
     dropped: list[str] = []
     for sample in samples:
         doc_type = doc_types[sample.doc_type]
-        if prompt_length(sample, doc_type, processor, config) > budget:
+        rng = random.Random(f"{config.seed}:{sample.id}:rl") if config.fields.sampling else None
+        request = training_request(sample.target, doc_type, config.fields, rng)
+        if prompt_length(sample, doc_type, processor, config, request) > budget:
             if config.training.over_length == "error":
                 raise SystemExit(
                     f"{sample.id}: prompt + max_completion_length > training.max_seq_length"
                 )
             dropped.append(sample.id)
             continue
-        prompt, images = rl_prompt(sample, doc_type, config.data.dir, text_only=text_only)
+        prompt, images = rl_prompt(
+            sample, doc_type, config.data.dir, text_only=text_only, request=request
+        )
         rows.append(
             {
                 "prompt": prompt,
                 "images": images,
-                "target_json": json.dumps(sample.target, ensure_ascii=False),
+                "target_json": json.dumps(
+                    project(sample.target, request.paths), ensure_ascii=False
+                ),
                 "doc_type": sample.doc_type,
                 "sample_id": sample.id,
             }
