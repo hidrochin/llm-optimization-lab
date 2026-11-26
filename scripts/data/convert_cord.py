@@ -48,8 +48,14 @@ def _value(value: Any) -> str | None:
 
 
 def _pick(source: Any, fields: dict[str, str]) -> dict[str, str | None]:
-    source = source if isinstance(source, dict) else {}
-    return {ours: _value(source.get(theirs)) for theirs, ours in fields.items()}
+    # A section printed twice (e.g. a subtotal before and after a discount) is a list of
+    # dicts: the first block with a value wins for each key.
+    blocks = source if isinstance(source, list) else [source]
+    blocks = [block for block in blocks if isinstance(block, dict)]
+    return {
+        ours: next((v for block in blocks if (v := _value(block.get(theirs))) is not None), None)
+        for theirs, ours in fields.items()
+    }
 
 
 def cord_target(gt_parse: dict[str, Any]) -> dict[str, Any]:

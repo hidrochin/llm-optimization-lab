@@ -169,17 +169,17 @@ transformers 5 replaced `warmup_ratio` with a fractional `warmup_steps`; LLM Com
 
 **Done when:** every member can clone, open a PR, and see CI run on it.
 
-### T-L01 · Public dev set (CORD v2) ⬜
+### T-L01 · Public dev set (CORD v2) 🟡
 
 **Owner:** Lead · **Depends on:** — · **Priority:** P0 · **Estimate:** 0.5 day
 
 The dev set lets phase-1 validation start before private data exists.
 
-- [ ] Check the CORD v2 license (CC BY 4.0) is fine for internal use; note it in `docs/datasets.md`
-- [ ] `uv run --group data python scripts/data/convert_cord.py --out-dir "$LLMOPT_DATA_DIR/public/cord"`
-- [ ] `uv run python scripts/data/validate.py --data-dir "$LLMOPT_DATA_DIR/public/cord"`
-- [ ] Split: `scripts/split_dataset.py --data-dir ... --input .../all.jsonl`; benchmark set: `scripts/data/make_benchmark.py --data-dir ... --n 100`
-- [ ] Make the dev set available on every GPU server
+- [x] Check the CORD v2 license (CC BY 4.0) is fine for internal use; note it in `docs/datasets.md`
+- [x] `uv run --group data python scripts/data/convert_cord.py --out-dir "$LLMOPT_DATA_DIR/public/cord"` (fixed: a section annotated twice lost all its values)
+- [x] `uv run python scripts/data/validate.py --data-dir "$LLMOPT_DATA_DIR/public/cord"`: 2,000 records, 0 errors
+- [x] Split: `scripts/split_dataset.py --data-dir ... --input .../all.jsonl`; benchmark set: `scripts/data/make_benchmark.py --data-dir ... --n 100`; no receipt in two splits; hashes in `docs/datasets.md`
+- [ ] Make the dev set available on every GPU server: `rsync` the built folder, check `SHA256SUMS` (commands in `docs/datasets.md`)
 
 **Done when:** `configs/dev/*.yaml` find their data on every server.
 
@@ -776,6 +776,7 @@ Decisions made while working. Move settled ones into README §4.
 | 2026-11-20 | Speculative decoding (MTP, drafters) is out of scope: serving-only | Lead | — |
 | 2026-11-20 | The lead owns W6, RL with GRPO on top of SFT; TRL is used for GRPO only; the RL run continues the SFT adapter | Lead | T-L10 |
 | 2026-11-20 | `visual` (Qwen's vision tower) and MoE router gates are excluded from LoRA / W4A16 by default | Lead | T-D09 |
+| 2026-11-25 | CORD is re-split by receipt with our default ratios, not the official split; it is built once and copied to every server, checked with `SHA256SUMS` | Lead | T-L01 |
 
 ## Daily log
 
@@ -783,6 +784,7 @@ One line per working day: task IDs, what moved, what is next or blocking. Newest
 
 ### Lead
 - 2026-11-25 · T-L07 🟡: aggregate_results, plot_tradeoffs (`report` group, in CI), error_analysis, with tests on synthetic metrics and fixture evaluations. Next: run them on the first dev metrics.
+- 2026-11-25 · T-L01 🟡: CORD v2 converted, validated, split (800/50/100/50 receipts), benchmark set of 100, `docs/datasets.md`; converter fix for sections annotated twice. Next: copy to the GPU servers, then T-L07.
 - 2026-11-20 · Candidate models researched (`docs/models.md`), reading list (`docs/reading.md`), plan updated for Qwen3.5/3.6 (E13–E19, R1, Q7, Q8). T-L10 🟡: GRPO drafted and CPU-checked on tiny Gemma 4 / Qwen3.5 / Qwen3.6 MoE, paused before the GPU run. Next: T-L01, then the T-L10 GPU steps.
 - 2026-11-20 · T-002 ✅ phase-1 tool drafts (training, HF predict, merge, inspect, quantize, verify, vLLM serve/predict/benchmark, data tools), CPU-checked on tiny Gemma 4; TASKS.md restructured into two phases. Next: T-L01, T-003.
 - 2026-11-19 · T-001 ✅ core package, `TASKS.md`, README in English.

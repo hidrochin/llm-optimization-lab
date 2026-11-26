@@ -52,6 +52,11 @@ def test_cord_conversion():
     ]
     assert target["subtotal"] == dict.fromkeys(cord.SUBTOTAL_FIELDS.values())
     assert target["total"]["cash_price"] == "50,000"
+    twice = cord.cord_target(
+        {"sub_total": [{"subtotal_price": "18,182", "tax_price": "1,546"}, {"subtotal_price": "1"}]}
+    )
+    assert twice["subtotal"]["subtotal_price"] == "18,182"
+    assert twice["subtotal"]["tax_price"] == "1,546"
     schema_dir = ROOT / "doc_types"
     validate = load_script("scripts/data/validate.py")
     sample = Sample(

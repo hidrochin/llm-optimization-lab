@@ -394,7 +394,8 @@ LLMOPT_RUN_TINY=1 uv run --group train pytest tests/test_hf_tiny.py        # tin
 ### End to end on the dev set (the M1 path)
 
 ```bash
-# Data (T-L01): CORD v2 -> records, validate, split, benchmark set
+# Data (T-L01): built once, then copied to each server (docs/datasets.md); to rebuild:
+# CORD v2 -> records, validate, split, benchmark set
 uv run --group data python scripts/data/convert_cord.py --out-dir "$LLMOPT_DATA_DIR/public/cord"
 uv run python scripts/data/validate.py --data-dir "$LLMOPT_DATA_DIR/public/cord"
 uv run python scripts/split_dataset.py --data-dir "$LLMOPT_DATA_DIR/public/cord" \
@@ -475,7 +476,7 @@ llm-optimization-lab/
 │   ├── reading.md               ✅ papers and docs for every model, technique and term
 │   ├── formats.md               ✅ data, prediction, metrics and config contracts
 │   ├── annotation_guideline.md       (T-L02)
-│   └── datasets.md                   public datasets and licenses (T-L01)
+│   └── datasets.md              ✅ public datasets, licenses, CORD conversion and split hashes
 │
 ├── doc_types/
 │   ├── cord_receipt/            ✅ public dev doc type
