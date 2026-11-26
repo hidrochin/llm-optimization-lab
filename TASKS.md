@@ -166,7 +166,8 @@ transformers 5 replaced `warmup_ratio` with a fractional `warmup_steps`; LLM Com
 - [ ] Make CI run: replace `runs-on: ubuntu-latest` with the org's runner label if needed; check that org policy allows `astral-sh/setup-uv`
 - [ ] Protect `main`: PR required, 1 approval, CI green; add `CODEOWNERS` (lead on `src/llm_opt_lab/`, `docs/formats.md`; tool authors on their tools)
 - [ ] Agree where data and artifacts live on each GPU server (shared NFS or one copy per server); document `LLMOPT_DATA_DIR` and `LLMOPT_ARTIFACTS_DIR` per server in README quick start
-- [ ] Decide whether `proposal.md` and the research report behind the 2026-11-26 decisions (`reports/Trích xuất trường chưa gán nhãn.md`, `research_notes/`; Vietnamese, untracked) are committed
+- [x] The research report behind the 2026-11-26 decisions is committed (2026-11-27): [reports/Trích xuất trường chưa gán nhãn.md](reports/Tr%C3%ADch%20xu%E1%BA%A5t%20tr%C6%B0%E1%BB%9Dng%20ch%C6%B0a%20g%C3%A1n%20nh%C3%A3n.md) and its source notes in `research_notes/` (Vietnamese)
+- [ ] Decide whether `proposal.md` (Vietnamese, untracked) is committed
 
 **Done when:** every member can clone, open a PR, and see CI run on it.
 
@@ -299,7 +300,7 @@ annotated fields, sometimes with decoys whose answer is `null`. It returns print
 only; normalization and business rules run in code (T-L05). Self-supervised pretraining
 (MLM-style) was considered and rejected as the main path: no study shows it extracts fields
 that were never labeled, and the base models already read documents. Evidence and sources:
-the research report listed in T-003.
+the research report [reports/Trích xuất trường chưa gán nhãn.md](reports/Tr%C3%ADch%20xu%E1%BA%A5t%20tr%C6%B0%E1%BB%9Dng%20ch%C6%B0a%20g%C3%A1n%20nh%C3%A3n.md) (Vietnamese) and its notes in `research_notes/`.
 
 #### T-L14 · Schema-conditioned extraction tools (core) 🟡
 
@@ -868,7 +869,7 @@ Decisions made while working. Move settled ones into README §4.
 One line per working day: task IDs, what moved, what is next or blocking. Newest on top.
 
 ### Lead
-- 2026-11-26 · Research on generalizing to new fields (report listed in T-003); plan changed: Q9, T-L14, T-L15 (E20), T-L02/T-L03/T-L05 extended. T-L14 🟡: branch `T-L14-schema-conditioned-extraction` (T-L01 merged in): field registry, field requests, sampled SFT/GRPO requests, scoring by field group, `public/cord_full`, E20 configs; 112 CPU tests and the tiny-model tests pass. 2026-11-27: merged into `main` with T-L01 and T-L07 and pushed. Next: copy `cord` and `cord_full` to the GPU servers, T-003, then T-L15 on an L40 once M1 is reached.
+- 2026-11-26 · Research on generalizing to new fields (`reports/Trích xuất trường chưa gán nhãn.md`); plan changed: Q9, T-L14, T-L15 (E20), T-L02/T-L03/T-L05 extended. T-L14 🟡: branch `T-L14-schema-conditioned-extraction` (T-L01 merged in): field registry, field requests, sampled SFT/GRPO requests, scoring by field group, `public/cord_full`, E20 configs; 112 CPU tests and the tiny-model tests pass. 2026-11-27: merged into `main` with T-L01 and T-L07 and pushed. Next: copy `cord` and `cord_full` to the GPU servers, T-003, then T-L15 on an L40 once M1 is reached.
 - 2026-11-25 · T-L07 🟡: aggregate_results, plot_tradeoffs (`report` group, in CI), error_analysis, with tests on synthetic metrics and fixture evaluations. Next: run them on the first dev metrics.
 - 2026-11-25 · T-L01 🟡: CORD v2 converted, validated, split (800/50/100/50 receipts), benchmark set of 100, `docs/datasets.md`; converter fix for sections annotated twice. Next: copy to the GPU servers, then T-L07.
 - 2026-11-20 · Candidate models researched (`docs/models.md`), reading list (`docs/reading.md`), plan updated for Qwen3.5/3.6 (E13–E19, R1, Q7, Q8). T-L10 🟡: GRPO drafted and CPU-checked on tiny Gemma 4 / Qwen3.5 / Qwen3.6 MoE, paused before the GPU run. Next: T-L01, then the T-L10 GPU steps.

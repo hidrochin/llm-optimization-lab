@@ -542,7 +542,9 @@ llm-optimization-lab/
 │
 ├── reports/                          environment, data_quality, data_stats, baseline, lora_vs_qlora,
 │                                     quantization, serving, production_reference, moe_architecture,
-│                                     moe_lora, rl, final_recommendation, notes/
+│                                     moe_lora, rl, final_recommendation, notes/;
+│                                ✅ "Trích xuất trường chưa gán nhãn.md": research behind Q9 (Vietnamese)
+├── research_notes/              ✅ source notes of that research, one file per angle
 │
 ├── artifacts/                        not committed: adapters, merged, quantized, predictions, eval
 ├── data/                             not committed (or outside the repo via LLMOPT_DATA_DIR)
@@ -720,7 +722,7 @@ Weekly summary. Day-to-day progress is in the [daily log](TASKS.md#daily-log).
 
 ### Field generalization · `2026-11-26`
 - **Question:** required fields change weekly during go-live and monthly in production (fields added or removed, new doc types, business rules per customer). Can the model handle that without new labels and a new fine-tune each time?
-- **Findings (research report, see T-003):** self-supervised pretraining (MLM-style) teaches reading, which Gemma 4 and Qwen3.5 already do; no study shows it extracts fields never labeled. What generalizes is training the model to read the field list on many varied requests (LMDX, GoLLIE, NuExtract, GLiNER); a fixed-schema model reaches only 3–5 F1 on a held-out field (GenKIE). Zero-shot on new fields stays well below 95%, so a new field still needs labels, but tens to hundreds of documents instead of a relabeled set. Vendors (Google Document AI, Azure, AWS) follow the same ladder: edit the schema, add a few corrected examples, fine-tune only if needed.
+- **Findings** ([research report](reports/Tr%C3%ADch%20xu%E1%BA%A5t%20tr%C6%B0%E1%BB%9Dng%20ch%C6%B0a%20g%C3%A1n%20nh%C3%A3n.md), Vietnamese; notes in `research_notes/`): self-supervised pretraining (MLM-style) teaches reading, which Gemma 4 and Qwen3.5 already do; no study shows it extracts fields never labeled. What generalizes is training the model to read the field list on many varied requests (LMDX, GoLLIE, NuExtract, GLiNER); a fixed-schema model reaches only 3–5 F1 on a held-out field (GenKIE). Zero-shot on new fields stays well below 95%, so a new field still needs labels, but tens to hundreds of documents instead of a relabeled set. Vendors (Google Document AI, Azure, AWS) follow the same ladder: edit the schema, add a few corrected examples, fine-tune only if needed.
 - **Decided:** schema-conditioned extraction with sampled training requests (E20 confirms it before M3); printed values only, with normalization and business rules in code; a field registry per doc type that grows field by field; human-checked test split. E17 (NuExtract3) is P1.
 - **Done:** T-L14 on branch `T-L14-schema-conditioned-extraction` (T-L01 merged in): registry, requests, sampled SFT and GRPO, scoring by field group, `public/cord_full`, E20 configs; CPU and tiny-model tests pass.
 - **Merged:** 2026-11-27, T-L14 together with T-L01 (dev set) and T-L07 (result tools) went to `main` directly.
