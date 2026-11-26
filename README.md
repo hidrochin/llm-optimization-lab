@@ -11,7 +11,7 @@ Experimental research on **fine-tuning (LoRA, QLoRA, RL with GRPO)**, **quantiza
 | [docs/reading.md](docs/reading.md) | Papers and docs behind every model, technique and term used here |
 | [proposal.md](proposal.md) | Original proposal with the full reasoning (Vietnamese) |
 
-**Problem:** information extraction from documents. Each **document type** has its own system prompt and JSON schema describing the fields to extract. There are two input flows:
+**Problem:** information extraction from documents. Each **document type** has a **field registry** (`schema.json`: fields, descriptions, examples) and short instructions; the system prompt lists the fields a request asks for. The required fields change often (weekly during go-live, monthly in production), so the model is trained to **read the field list** instead of one fixed output, and returns **printed values only**: normalization and per-customer business rules run in code ([formats §2–3](docs/formats.md#2-doc-types)). There are two input flows:
 
 - **VLM flow:** document image → JSON
 - **LLM flow:** spatial text (layout-preserving text of the document) → JSON
@@ -39,6 +39,7 @@ Outputs are nested key-value JSON. Context is about **21K–32K tokens**.
 | Q6 | Is LoRA on MoE (Gemma 4 26B-A4B, Qwen3.6-35B-A3B) feasible on an L40? Should it target attention or experts? Is it worth it compared with dense models? How much does W4A16 alone speed up the production model? | E | E9, E10, E12, E15, R1 |
 | Q7 | Which model family and size is the cheapest to reach 95% per flow: one model for both flows, or a small text model for spatial text plus a model for images? | C (with A, B) | E7, E8, E13, E14, E16, E17 |
 | Q8 | Does RL with a verifiable extraction reward (GRPO) on top of SFT raise exact match where SFT alone stops short, does the gain survive W4A16, and what does it cost on an L40? | Lead | E18, E19 |
+| Q9 | Does SFT on sampled field requests keep accuracy on the trained fields and extract fields it was never trained on, compared with SFT on one fixed prompt? How many labels does a new field still need, and does W4A16 widen the gap between trained and new fields? | Lead | E20 |
 
 ## 2. Hardware and models
 
@@ -111,7 +112,7 @@ The estimate assumes vLLM keeps KV only within the window of sliding-window laye
 
 **Legend:** ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked · ⏭️ skipped
 
-**Start date:** `YYYY-MM-DD` · **Last updated:** `2026-11-26`
+**Start date:** `YYYY-MM-DD` · **Last updated:** `2026-11-27`
 
 | Milestone | Reached when | Status | Report |
 |-----------|--------------|:------:|--------|
@@ -119,7 +120,7 @@ The estimate assumes vLLM keeps KV only within the window of sliding-window laye
 | M0 Core and tool drafts | Shared package, every phase-1 tool drafted and CPU-checked on a tiny Gemma 4 (T-001, T-002) | ✅ | [docs/formats.md](docs/formats.md), [TASKS.md](TASKS.md#t-002--phase-1-tool-drafts-) |
 | M1 Tools validated on GPU | Dev set end to end on real E2B: train, HF predict, merge, quantize, vLLM serve, benchmark, evaluate | ⬜ | `reports/environment.md`, `reports/serving.md` |
 | M2 Private data frozen | Private data validated, split, token statistics agreed | ⬜ | `reports/data_quality.md`, `reports/data_stats.md` |
-| M3 Reference config frozen | E1 tuned, rank sweep done, adapter inference and merge verified | ⬜ | `reports/baseline.md` |
+| M3 Reference config frozen | E20 verdict applied (fixed vs sampled requests), E1 tuned, rank sweep done, adapter inference and merge verified | ⬜ | `reports/field_generalization.md`, `reports/baseline.md` |
 | M4 Quantized model served at 60 | E4 evaluated, latency curve up to 60 | ⬜ | `reports/lora_vs_qlora.md`, `reports/quantization.md`, `reports/serving.md` |
 | M5 MoE answered | E9, E10, R1 evaluated and served | ⬜ | `reports/moe_lora.md` |
 | M6 RL answered | E18 evaluated against its SFT start; E19 served | ⬜ | `reports/rl.md` |
@@ -133,10 +134,12 @@ Task-level status is in [TASKS.md](TASKS.md).
 
 | Topic | Decision | Consequence for the plan |
 |-------|----------|--------------------------|
-| Task | Information extraction: image or spatial text → the fields described in the doc type's system prompt | The model must accept images. Every metric is reported by input type. |
-| Document types | Each doc type has its own system prompt and JSON schema in `doc_types/<name>/` | One model per experiment is trained on all doc types and both input types; the system prompt selects the schema. Metrics are also reported by doc type. Revisit if one doc type lags. |
+| Task (updated 2026-11-26) | Information extraction: image or spatial text → the fields the system prompt asks for, values as printed | The model must accept images. Every metric is reported by input type. |
+| Document types (updated 2026-11-26) | Each doc type has `instructions.md` and a field registry `schema.json` in `doc_types/<name>/`; the system prompt is rendered from the registry for each request | One model per experiment is trained on all doc types and both input types; the system prompt selects the doc type and its fields. Metrics are also reported by doc type. Revisit if one doc type lags. |
+| Field generalization (2026-11-26) | Train the model to read the field list: training requests are random subsets of each record's annotated fields, with decoys answered `null` (`fields.sampling`); inference asks for a fixed set per doc type, so prefix caching still works. MLM-style self-supervised pretraining is not the main path: no study shows it extracts fields never labeled | E20 (T-L15) checks it against one fixed prompt on CORD with held-out fields before M3. A new field still needs labels for its test set and a few dozen to a few hundred for training; it waits for the next monthly retrain, while the registry change ships at once |
+| Raw data and business rules (2026-11-26) | The model returns printed values only. Normalization (one value, a fixed mapping, e.g. `"Pallet"` → `PX`) and per-customer rules (`derive` fields, e.g. "3 Pallet, 5 Carton" → 3, 5 or 8) run in code, versioned | A rule or code-list change needs no labels and no retraining. T-L02 converts rule-dependent fields, T-L05 ports the rules |
 | Metrics | Exact match, field-level accuracy, plus NED and parse rate | Implemented once in the core package for every track ([formats](docs/formats.md#5-scoring)). |
-| Ground truth | Nested JSON following the doc type schema; written to a shared guideline | T-L02 writes the guideline; T-L03 validates and splits the private data. |
+| Ground truth (updated 2026-11-26) | Nested JSON of printed facts following the registry, written to a shared guideline. A field is annotated when its key is present (`null` = checked, not on the document), so the registry can grow without relabeling old records. `label_source` says whether a person checked Qwen3.6's labels | T-L02 writes the guideline and the registries; T-L03 validates and splits the private data; the test split must be human-checked. |
 | Data source | Start with a public dev set (CORD v2) in the final format; private data uses the same format | Tools are validated before private ground truth exists (T-L01). |
 | Normalization | The same function normalizes prediction and ground truth, and is meant to run in production | Generic rules exist now; production rules are ported in T-L05. |
 | Dataset | Private; split into `train` / `validation` / `test` / `calibration`, stratified by doc type, grouped by source document | Never committed or uploaded to the Hugging Face Hub or any external service. About 2,000+ samples per doc type. |
@@ -164,6 +167,8 @@ Task-level status is in [TASKS.md](TASKS.md).
 - [ ] **List matching:** compare list items by position (current) or by content? → T-L06
 - [ ] **Production spatial text format** (the dev set uses our own renderer) and production postprocess rules. → T-C05, T-L05
 - [ ] **Split ratios** (default 80/5/10/5). → T-L03
+- [ ] **E20 decision rule**, agreed before the runs: how close to the fixed prompt the sampled requests must stay on trained fields, and how much better on held-out fields. → T-L15
+- [ ] **Where business rules live** (this repo or the production service) and how a release pins model, registry and rule versions. → T-L05
 
 ## 5. Plan
 
@@ -179,7 +184,7 @@ The work runs in two phases (details and owners in [TASKS.md](TASKS.md)):
 | C | Serving at 60 concurrent requests | R0, KV cache / prefix caching / FP8 KV, sweep of every candidate, one model vs one per flow | Q5, Q7 |
 | D | W3 PTQ and W4 Gemma QAT | E4, E5, E6, the Qwen W4A16 recipe | Q3, Q4 |
 | E | W5 MoE | E9, E10, E12, R1, E15 | Q6 |
-| Lead | W6 RL (GRPO); shared data, integration | E18, E19; data tasks, result tables, final recommendation | Q8 |
+| Lead | E20 field holdout (gates M3); W6 RL (GRPO); shared data, integration | E20, E18, E19; data tasks, result tables, final recommendation | Q8, Q9 |
 
 The rule from the original plan still holds for **results**: do not stack quantization or MoE on top of a pipeline that does not yet work, because debugging gets much harder. The milestones in §3 are the gates. Phase 2 starts at M1 (tools validated) + M2 (private data frozen).
 
@@ -208,8 +213,9 @@ The most important table for managing the research. Update **Status** and **Key 
 | E14 | P1 | Qwen3.5-9B | QLoRA NF4 → W4A16 | Medium model of the production family | `qwen35_9b/qlora_nf4.yaml` | B · T-B11 | ⬜ | |
 | E15 | P2 | Qwen3.6-35B-A3B | QLoRA → merged → W4A16 | Fine-tune the production model | `qwen36_35b_a3b/qlora.yaml` | E · T-E10 | ⬜ | |
 | E16 | P2 | Qwen3.5-2B | LoRA BF16 on spatial text only → BF16 | Small text-only model for the text flow | `qwen35_2b/lora_spatial_text.yaml` | A · T-A10 | ⬜ | |
-| E17 | P2 | NuExtract3 | None, then LoRA → W4A16 | Extraction-specialized starting point | `nuextract3/baseline.yaml` | B · T-B12 | ⬜ | |
+| E17 | P1 | NuExtract3 | None, then LoRA → W4A16 | Extraction-specialized starting point; zero-shot reference for E20 | `nuextract3/baseline.yaml` | B · T-B12 | ⬜ | |
 | E18 | P1 | Reference model (E2B first) | SFT adapter → GRPO → adapter | RL with extraction rewards | `rl/gemma4_e2b_grpo.yaml` | Lead · T-L11 | ⬜ | |
+| E20 | P0 | Gemma 4 E2B (then Qwen3.5-4B) | LoRA BF16, fixed vs sampled requests → BF16 | Field holdout on CORD (`cord_full`): trained vs never-trained fields, decoys; gates M3 | `field_holdout/*.yaml` | Lead · T-L15 | ⬜ | |
 | E19 | P2 | Same as E18 | GRPO → merge → W4A16 (vLLM) | Does the RL gain survive quantization? | `rl/gemma4_e2b_grpo_w4a16.yaml` | Lead · T-L12 | ⬜ | |
 | R0 | P1 | Qwen3.6-35B-A3B-FP8 | Production model → vLLM | Accuracy and latency reference, both flows | `qwen36_35b_a3b/production.yaml` | C · T-C06 | ⬜ | |
 | R1 | P1 | Qwen3.6-35B-A3B | None → W4A16 (vLLM) | Cheapest speed-up of the production model | `qwen36_35b_a3b/w4a16.yaml` | E · T-E09 | ⬜ | |
@@ -228,6 +234,9 @@ Prediction and ground truth are parsed, normalized with the same rules, and flat
 - **Field-level accuracy:** correct fields divided by expected fields over the whole test set. Threshold 95%.
 - **NED (normalized edit distance):** Levenshtein distance between prediction and ground truth divided by the longer length, per field, averaged; 0 is a perfect match. NED tells whether a wrong field is off by a few characters or completely wrong.
 - **Parse rate:** share of outputs that parse to a JSON object. An unparseable output counts as wrong on every field.
+- **Key presence:** share of expected leaf paths present in the output; a model that ignores a requested field loses it even when the value is null.
+
+Only the fields the prompt asked for are scored; fields a record does not annotate are skipped. When a request holds held-out fields or decoys, accuracy, missed values and invented values are also reported for the seen, held-out and decoy groups ([formats §5](docs/formats.md#5-scoring)).
 
 Every metric is reported **by input type (image, spatial text) and by doc type**, plus accuracy per field, to show which fields drag the score down.
 
@@ -298,6 +307,10 @@ data:
   dir: ${LLMOPT_DATA_DIR}/private   # split .jsonl files and images
   doc_types: []                     # empty = every doc type
   input_types: [image, spatial_text]
+
+fields:                             # which fields each prompt asks for (formats §3)
+  inference: full                   # every extract field of the registry
+  sampling: {}                      # training: random field subsets + decoys (if E20 agrees)
 
 method:
   name: lora                        # none | lora | qlora
@@ -458,10 +471,11 @@ llm-optimization-lab/
 ├── src/llm_opt_lab/             ✅ shared core, no torch/transformers/vllm imports
 │   ├── config.py                     experiment config schema, `extends:`
 │   ├── data.py, split.py             dataset records; grouped, stratified split; benchmark sampling
-│   ├── doc_types.py                  per-doc-type system prompt + JSON schema
-│   ├── prompting.py                  chat messages for training, HF, calibration and vLLM
+│   ├── doc_types.py                  field registry (schema.json) + instructions per doc type
+│   ├── field_requests.py             which fields a prompt asks for; sampled training requests
+│   ├── prompting.py                  system prompt rendered for a request; chat messages everywhere
 │   ├── parsing.py, postprocess.py    raw output → JSON; normalization shared with production
-│   ├── metrics.py, evaluation.py     exact match, field accuracy, NED, parse rate
+│   ├── metrics.py, evaluation.py     exact match, field accuracy, NED, parse rate, key presence, field groups
 │   ├── predictions.py, results.py    predictions contract; metrics JSON with per-stage provenance
 │   ├── paths.py                      standard output locations, model sources
 │   ├── serving.py                    vLLM command, closed-loop load, latency stats, /metrics parsing
@@ -479,11 +493,13 @@ llm-optimization-lab/
 │   └── datasets.md              ✅ public datasets, licenses, CORD conversion and split hashes
 │
 ├── doc_types/
-│   ├── cord_receipt/            ✅ public dev doc type
-│   └── <company doc type>/           system_prompt.md + schema.json (T-L03)
+│   ├── cord_receipt/            ✅ public dev doc type (12 CORD fields)
+│   ├── cord_receipt_full/       ✅ every CORD field, for the field-holdout experiment E20
+│   └── <company doc type>/           instructions.md + field registry schema.json (T-L02, T-L03)
 │
 ├── configs/
 │   ├── dev/                     ✅ CORD v2 configs that validate the tools (experiment ID DEV), Gemma and Qwen
+│   ├── field_holdout/           ✅ E20: fixed vs sampled requests, conditions seen / held_out / decoys
 │   ├── reference/                    gemma4_e2b_lora.yaml, the reference config (T-A04)
 │   ├── gemma4_e2b/                   baseline, qlora_nf4, quant_w4a16
 │   ├── gemma4_e2b_qat/               baseline, lora_bf16
@@ -609,6 +625,7 @@ The goal is a trustworthy conclusion, not finishing every experiment. If time ru
 **P0 — Required**
 - [ ] GPU environment + baseline (E0)
 - [ ] LoRA BF16 (E1)
+- [ ] Field holdout, fixed vs sampled requests (E20): decides the reference config before M3
 - [ ] QLoRA NF4 (E2)
 - [ ] Merge LoRA (E3)
 - [ ] Inference benchmark BF16 vs 4-bit
@@ -621,6 +638,7 @@ The goal is a trustworthy conclusion, not finishing every experiment. If time ru
 - [ ] Concurrency benchmark up to 60 requests and the Qwen3.6-35B-A3B-FP8 production reference (R0)
 - [ ] W4A16 of the production model (R1)
 - [ ] Qwen3.5-4B and Qwen3.5-9B (E13, E14)
+- [ ] NuExtract3, a model already trained to read a field template (E17)
 - [ ] RL with extraction rewards on the reference SFT adapter (E18)
 - [ ] Accuracy – VRAM – latency trade-off after quantization
 - [ ] MoE QLoRA on attention (E9)
@@ -630,16 +648,17 @@ The goal is a trustworthy conclusion, not finishing every experiment. If time ru
 - [ ] Dense 12B (E8)
 - [ ] Router LoRA (E12)
 - [ ] QLoRA on the production model (E15)
-- [ ] Spatial-text-only Qwen3.5-2B, NuExtract3 (E16, E17)
+- [ ] Spatial-text-only Qwen3.5-2B (E16)
 - [ ] RL gain after W4A16 (E19)
-- [ ] Calibration set comparison
+- [ ] Calibration set comparison, including sampled requests and general Vietnamese data (T-D07)
 - [ ] Unsloth vs standard Hugging Face training
 - [ ] FP8 weights
 - [ ] Advanced MoE optimization / expert parallelism
 - [ ] vLLM structured outputs from the doc type JSON schema; multi-LoRA serving per doc type (T-C09)
-- [ ] Shorter system prompt after fine-tuning: once the model has learned the schema, part of the long description may be dropped, cutting context and latency
 
-**Shortest path to a valuable result:** Gemma E2B baseline → LoRA BF16 → QLoRA NF4 → merge and verify → W4A16 + vLLM at 60 requests → Gemma QAT comparison → MoE attention QLoRA → MoE expert QLoRA → final report.
+Dropped 2026-11-26: a shorter system prompt after fine-tuning. The field list in the prompt is what lets a field change ship as a registry change.
+
+**Shortest path to a valuable result:** Gemma E2B baseline → LoRA BF16 → E20 (fixed vs sampled requests) → QLoRA NF4 → merge and verify → W4A16 + vLLM at 60 requests → Gemma QAT comparison → MoE attention QLoRA → MoE expert QLoRA → final report.
 
 ## 13. Final decision table
 
@@ -698,6 +717,14 @@ Weekly summary. Day-to-day progress is in the [daily log](TASKS.md#daily-log).
 - **Done:** T-L01 (branch `T-L01-cord-dev-set`): CORD v2 converted, validated and split once by receipt (800 / 50 / 100 / 50, benchmark set of 100), license and hashes in `docs/datasets.md`; only the copy to the GPU servers is left. T-L07 (branch `T-L07-result-tables`): `aggregate_results.py`, `plot_tradeoffs.py` and `error_analysis.py`, tested on synthetic metrics and fixture evaluations, waiting for the first real metrics.
 - **Findings:** one CORD receipt annotated its subtotal twice and lost every subtotal value in conversion (fixed before the split). CORD's spatial text comes from ground-truth OCR boxes, so spatial-text scores on CORD are optimistic. `uv sync --group X` removes every group not listed: use `uv sync --all-groups` on a machine that needs several environments' packages.
 - **Next:** copy the dev set to the GPU servers; T-003 (GitHub Enterprise); T-L10 GPU steps once B has the training environment (T-B01).
+
+### Field generalization · `2026-11-26`
+- **Question:** required fields change weekly during go-live and monthly in production (fields added or removed, new doc types, business rules per customer). Can the model handle that without new labels and a new fine-tune each time?
+- **Findings (research report, see T-003):** self-supervised pretraining (MLM-style) teaches reading, which Gemma 4 and Qwen3.5 already do; no study shows it extracts fields never labeled. What generalizes is training the model to read the field list on many varied requests (LMDX, GoLLIE, NuExtract, GLiNER); a fixed-schema model reaches only 3–5 F1 on a held-out field (GenKIE). Zero-shot on new fields stays well below 95%, so a new field still needs labels, but tens to hundreds of documents instead of a relabeled set. Vendors (Google Document AI, Azure, AWS) follow the same ladder: edit the schema, add a few corrected examples, fine-tune only if needed.
+- **Decided:** schema-conditioned extraction with sampled training requests (E20 confirms it before M3); printed values only, with normalization and business rules in code; a field registry per doc type that grows field by field; human-checked test split. E17 (NuExtract3) is P1.
+- **Done:** T-L14 on branch `T-L14-schema-conditioned-extraction` (T-L01 merged in): registry, requests, sampled SFT and GRPO, scoring by field group, `public/cord_full`, E20 configs; CPU and tiny-model tests pass.
+- **Merged:** 2026-11-27, T-L14 together with T-L01 (dev set) and T-L07 (result tools) went to `main` directly.
+- **Next:** copy `cord` and `cord_full` to the GPU servers; T-003; M1 on the GPUs; then T-L15 (E20).
 
 ### Week of `YYYY-MM-DD`
 - **Done:**

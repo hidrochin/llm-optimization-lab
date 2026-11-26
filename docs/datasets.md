@@ -78,3 +78,38 @@ depends on the Pillow version, so a second conversion can give different image b
 rsync -a "$LLMOPT_DATA_DIR/public/cord/" <server>:<data dir>/public/cord/
 ssh <server> 'cd <data dir>/public/cord && sha256sum -c --quiet SHA256SUMS && echo OK'
 ```
+
+## CORD v2 with every field: `cord_full`
+
+The field-holdout experiment E20 ([T-L15](../TASKS.md#t-l15--e20-field-holdout-fixed-vs-sampled-requests-)) needs
+fields that training never sees but the test set labels. `public/cord_full/` is the dev
+set above with every CORD field in the target ([`doc_types/cord_receipt_full`](../doc_types/cord_receipt_full/schema.json), 27 fields):
+
+```bash
+uv run --group data python scripts/data/convert_cord.py \
+    --out-dir "$LLMOPT_DATA_DIR/public/cord_full" --relabel-from "$LLMOPT_DATA_DIR/public/cord"
+```
+
+- Same record ids, split files, spatial text and images as `public/cord` (`images` is a
+  relative link to `../cord/images`), so the frozen split holds. Only `doc_type`, `target`
+  and `label_source: human` differ. Built 2026-11-26 by the lead, 5.7 MB.
+- Added fields: `menu[]` `num`, `discount_price`, `item_subtotal`, `vat_flag`, `etc` and
+  `sub[]` (`name`, `count`, `unit_price`, `price`); `subtotal.other_service_price`,
+  `subtotal.etc`; `total` `total_etc`, `emoney_price`, `menu_type_count`,
+  `menu_quantity_count`. `void_menu` (one receipt) is left out.
+- Test receipts (of 100) with a value, for the fields E20 holds out: `total.change_price`
+  64, `subtotal.tax_price` 36, `menu[].unit_price` 30, `total.menu_quantity_count` 29.
+
+`SHA256SUMS` in the folder covers its record files:
+
+```
+b7e368efdebd4cd54e9f26069048f051577e12fb8efb849be3fd40e7890d5052  all.jsonl
+0d26aa504570165c18b912f1beae8c25583fc4eef342bc6d794245d5bb968f2b  train.jsonl
+aaf2ebe0b8c807a1198ad620d31dfc4550f32d9c97b4633ef2bb26ee1225ad4c  validation.jsonl
+9b8d03d850bfe2f2117d4101c2c09b3912581de20f0aec4fa14ae787a3635cff  test.jsonl
+feaf8ad62bee227c745fa27f428232aff80e1b42d5576e1b10b8f71bcc11c130  calibration.jsonl
+2d98dfe5e86ef08a20a4dbc90243c5f8cc7e56bdfe70ec72f52679499629d944  benchmark.jsonl
+47ef2844bb87559868ac2e9413620d41eee686e7895fc3a7b74e76fa92122441  split_manifest.json
+```
+
+Copy it next to `public/cord` (the image link is relative): `rsync -a` keeps the link.

@@ -24,7 +24,7 @@ them is a separate effort, split by doc type; the lead owns the shared data task
 
 | Member | Phase 1: validates and maintains | Phase 2: owns end to end | Answers |
 |--------|----------------------------------|--------------------------|:-------:|
-| Lead | Core package, dev set, data tasks, `train_grpo.py` | **W6 RL (GRPO):** E18, E19; plus integration, reviews, result tables, final recommendation | Q8 |
+| Lead | Core package, dev set, data tasks, `train_grpo.py`, field requests (T-L14) | **E20 field holdout** (gates M3); **W6 RL (GRPO):** E18, E19; plus integration, reviews, result tables, final recommendation | Q8, Q9 |
 | A | SFT data, `train.py`, 32K training memory | **W1 LoRA BF16 and small models:** E0, E1, rank sweep, E3, E7, E13 (Qwen3.5-4B), E16 (Qwen3.5-2B, spatial text); publishes the reference config | Q1, Q7 |
 | B | Training environment, model loading, `inspect_model.py`, HF predictor, `merge_adapter.py`, the same tools on Qwen3.5 | **W2 QLoRA and medium models:** E2, QLoRA deployment options, E8, E14 (Qwen3.5-9B), E17 (NuExtract3), Unsloth (P2) | Q2, Q7 |
 | C | vLLM serve, vLLM predictor, benchmark harness | **Serving at 60:** production requirements, R0 (Qwen3.6-35B-A3B-FP8), KV cache / prefix caching / FP8 KV, serving sweep of every candidate, one model vs one per flow | Q5, Q7 |
@@ -86,7 +86,7 @@ bottleneck in phase 2: queue long runs overnight.
 | M0 | Core and tool drafts | T-001, T-002 done | ✅ |
 | M1 | Tools validated on GPU | On the dev set, end to end on real Gemma 4 E2B: train smoke → HF predict → merge → quantize → vLLM serve → vLLM predict → benchmark → evaluate; all phase-1 tasks done | ⬜ |
 | M2 | Private data frozen | T-L03 and T-L04 done | ⬜ |
-| M3 | Reference config frozen | Rank sweep done (T-A05), adapter inference and merge verified (T-A06) | ⬜ |
+| M3 | Reference config frozen | E20 verdict in the reference config (T-L15), rank sweep done (T-A05), adapter inference and merge verified (T-A06) | ⬜ |
 | M4 | Quantized model served at 60 | E4 evaluated (T-D04), latency curve up to 60 (T-C08) | ⬜ |
 | M5 | MoE question answered | T-E06 and T-E09 done | ⬜ |
 | M6 | RL question answered | T-L13 done | ⬜ |
@@ -98,7 +98,7 @@ Phase 2 starts for everyone at **M1 + M2**. A can start E0/E1 as soon as M2 is r
 
 | Member | Day 1 | Needs |
 |--------|-------|-------|
-| Lead | T-L01 (dev set), T-003, then T-L10 (GRPO on an L40) | — |
+| Lead | T-L01 and T-L14 (copy `cord` and `cord_full` to the servers, merge), T-003, then T-L15 (E20) and T-L10 (GRPO on an L40) | — |
 | A | T-A01 (with the smoke config) | Dev set from T-L01, environment from T-B01 |
 | B | T-B01, then T-B02, T-B10 (Qwen3.5) | — |
 | C | T-C01, T-C05 | — |
@@ -110,7 +110,8 @@ Phase 2 starts for everyone at **M1 + M2**. A can start E0/E1 as soon as M2 is r
 ```mermaid
 flowchart LR
     M1["M1 tools validated"] & M2["M2 private data frozen"] --> A03["T-A03 E0"] & A04["T-A04 E1 + tuning"]
-    A04 --> A05["T-A05 rank sweep: reference frozen"]
+    M1 --> L15["T-L15 E20 field holdout"]
+    A04 & L15 --> A05["T-A05 rank sweep: reference frozen"]
     A05 --> A06["T-A06 E3 merge"] & A07["T-A07 E7 E4B"] & B05["T-B05 E2 QLoRA"] & D06["T-D06 E6 QAT + LoRA"] & E04["T-E04 E9"]
     A05 --> A09["T-A09 E13 Qwen3.5-4B"] & B11["T-B11 E14 Qwen3.5-9B"] & L11["T-L11 E18 GRPO"]
     A06 --> D04["T-D04 E4 PTQ"]
@@ -165,7 +166,7 @@ transformers 5 replaced `warmup_ratio` with a fractional `warmup_steps`; LLM Com
 - [ ] Make CI run: replace `runs-on: ubuntu-latest` with the org's runner label if needed; check that org policy allows `astral-sh/setup-uv`
 - [ ] Protect `main`: PR required, 1 approval, CI green; add `CODEOWNERS` (lead on `src/llm_opt_lab/`, `docs/formats.md`; tool authors on their tools)
 - [ ] Agree where data and artifacts live on each GPU server (shared NFS or one copy per server); document `LLMOPT_DATA_DIR` and `LLMOPT_ARTIFACTS_DIR` per server in README quick start
-- [ ] Decide whether `proposal.md` (Vietnamese, untracked) is committed
+- [ ] Decide whether `proposal.md` and the research report behind the 2026-11-26 decisions (`reports/Trích xuất trường chưa gán nhãn.md`, `research_notes/`; Vietnamese, untracked) are committed
 
 **Done when:** every member can clone, open a PR, and see CI run on it.
 
@@ -188,14 +189,20 @@ The dev set lets phase-1 validation start before private data exists.
 **Owner:** Lead · **Depends on:** — · **Priority:** P0 · **Estimate:** 2 days
 
 Data is collected by doc type, by different people. Without one guideline, per-doc-type
-metrics measure annotation style instead of model errors.
+metrics measure annotation style instead of model errors. Since 2026-11-26 the guideline
+also has to keep labels valid when fields and business rules change
+([formats §1–2](docs/formats.md#1-dataset-records)).
 
 - [ ] Write `docs/annotation_guideline.md`:
-  - **Value format:** follow the output format the doc type's system prompt asks for; if it says nothing, copy the value as printed
-  - **Absent fields:** keep every schema key and use `null`, never `""`
+  - **Raw data only:** copy every value exactly as printed (`"5 Pallet"`, `"45,500"`). Never convert units or codes and never apply a customer rule: normalization and business rules run in code (T-L05). Split a printed fact into its printed parts when the registry asks for them (quantity and unit as two fields), but never combine facts
+  - **Annotated vs absent:** every field the record is annotated for has its key; `null` (`[]` for lists) means "checked, not on the document", never `""`; a field not annotated has no key. Every entry of a list annotates the same keys
   - **Lists:** one item per printed entry, in reading order; what to do with entries that span several lines
-  - **Numbers:** follow the schema type
+  - **Numbers and dates:** as printed; the registry's `x-field-type` only tells the scorer how to normalize
   - **Illegible or ambiguous values:** what to write, plus a flag in `meta.flags`
+  - **Label source:** `label_source` is `human`, `teacher` (Qwen3.6 output, not checked) or `teacher_reviewed`; reviewing a teacher label means checking every annotated field, not only the visible errors
+  - **Boxes (when provided):** the VLM's 0–1000 boxes are approximate; snap a value's box to the OCR words whose text matches it (normalized edit distance < 0.2), and flag values not found in the OCR for review first
+- [ ] **Field registry per doc type** (`doc_types/<name>/schema.json`, [formats §2](docs/formats.md#2-doc-types)), written with the people who know the business: for every field a `description` that says where it is printed, 1–3 `examples`, `x-field-type`, and `x-mode` (`extract` for printed facts, `derive` for values a business rule computes); 2–4 `x-decoys`. The registry grows field by field; nobody has to list every field of a House B/L up front
+- [ ] Review the current production fields: every field whose value depends on a customer rule (e.g. "3 Pallet, 5 Carton" read as cartons, pallets or 8 units) becomes `derive`, plus the printed facts it needs as `extract` fields
 - [ ] Worked examples per doc type (one clean, one tricky)
 - [ ] Agreement check: two people annotate the same 20 documents; score one against the other with `scripts/evaluate.py`; fold disagreements into the guideline
 
@@ -205,12 +212,14 @@ metrics measure annotation style instead of model errors.
 
 **Owner:** Lead · **Depends on:** private data and ground truth, T-L02 · **Priority:** P0 · **Estimate:** 1 day
 
-- [ ] One doc type folder per company doc type: `doc_types/<name>/system_prompt.md` (the production prompt) and `schema.json` (written from it, leaves tagged with `x-field-type`)
-- [ ] `scripts/data/validate.py` passes on `$LLMOPT_DATA_DIR/private/all.jsonl`
+- [ ] One doc type folder per company doc type: `instructions.md` (the production prompt without its field list and without business rules) and the field registry `schema.json` (T-L02)
+- [ ] Targets hold printed facts only: values a customer rule computed (the latest production prompt still applied the Pallet/Carton rules) are replaced by the printed facts they came from, or dropped from the target
+- [ ] `scripts/data/validate.py` passes on `$LLMOPT_DATA_DIR/private/all.jsonl`, and with `--reviewed-only` on `test.jsonl`: the test split is human-checked, otherwise "95%" only measures agreement with Qwen3.6
+- [ ] Teacher error audit: on a random sample of `teacher` labels, the share of wrong values per field (before review); it bounds what a model trained on unreviewed labels can reach
 - [ ] Agree split ratios (default 80/5/10/5). With ~200 test samples per doc type, a 95% exact match has a standard error of ~1.5 points; raise the test share if per-doc-type results matter (T-L06)
 - [ ] Run `scripts/split_dataset.py` **once**; never `--overwrite` after the first experiment
 - [ ] `scripts/data/make_benchmark.py --n 300` (≥ 5 × the highest concurrency)
-- [ ] Record the SHA-256 of every split file and counts per doc type × input type in `reports/data_quality.md`, with null rate per field and list lengths
+- [ ] Record the SHA-256 of every split file and counts per doc type × input type in `reports/data_quality.md`, with null rate per field, annotated share per field (fields added later are annotated on fewer records), `label_source` counts and list lengths
 - [ ] Copy to every GPU server
 
 **Done when:** splits, benchmark set and hashes exist; M2 is reached together with T-L04.
@@ -222,20 +231,25 @@ metrics measure annotation style instead of model errors.
 - [ ] `scripts/data/token_stats.py --config <E2B config> --split train --out reports/data_stats.md` (CPU is enough); repeat with the Qwen3.5 processor (`configs/dev/cord_qwen35_4b_base.yaml` pointed at private data)
 - [ ] Agree the image processor settings per model family with A: Gemma 4 has a fixed image token budget (70–1120), Qwen grows with resolution (one token per 32×32 px). Add `model.processor_kwargs` to the config and apply it in `load_processor` and in the vLLM command (`--mm-processor-kwargs`), so training, HF inference and serving see the same image (core PR)
 - [ ] Write `training.max_seq_length` and `evaluation.max_new_tokens` into the reference config (with A) and README §4; decide the over-length policy (drop or fail)
-- [ ] Note the system prompt share per doc type for C (prefix caching)
+- [ ] Note the system prompt share per doc type for C (prefix caching). The system prompt is now rendered from the registry (descriptions and examples of every field), so it is longer than a bare field list; sampled training requests are shorter than the inference one
 
 **Done when:** both lengths are agreed and written down.
 
-### T-L05 · Port the production postprocess ⬜
+### T-L05 · Port the production postprocess and the business-rule layer ⬜
 
-**Owner:** Lead · **Depends on:** production code (T-C05) · **Priority:** P0 · **Estimate:** 3 days
+**Owner:** Lead · **Depends on:** production code (T-C05), T-L02 · **Priority:** P0 · **Estimate:** 4 days
 
-- [ ] Implement the field-type rules in `src/llm_opt_lab/postprocess.py` (date → ISO 8601, numbers per field, codes, ...), replacing every `TODO(T-L05)`
+The model returns printed values only; everything else runs in code, in production as in
+scoring ([formats §2](docs/formats.md#2-doc-types)), so a rule or code-list change never
+needs new labels or retraining.
+
+- [ ] **Normalization** (one value, a mapping that does not depend on the customer): implement the field-type rules in `src/llm_opt_lab/postprocess.py` (date → ISO 8601, numbers per field, unit and package codes such as UN/ECE Recommendation 21 `PX` pallet / `CT` carton, ...), replacing every `TODO(T-L05)`
 - [ ] Align `EMPTY_VALUES` with production; tag every schema leaf with its `x-field-type`
+- [ ] **Business rules** for `derive` fields: per customer and doc type, versioned, unit-tested, outside the model (e.g. "3 Pallet, 5 Carton" → 3 cartons on an invoice, 8 units on a warehouse note). Decide where they live with the production team (this repo or the production service) and how a release pins (model, registry, rule) versions
 - [ ] Unit tests from real (anonymized) examples
 - [ ] `scripts/reevaluate.py` on everything evaluated so far
 
-**Done when:** no `TODO(T-L05)` is left and tests pass.
+**Done when:** no `TODO(T-L05)` is left, every `derive` field has a tested rule, and tests pass.
 
 ### T-L06 · Metric decisions ⬜
 
@@ -274,6 +288,62 @@ metrics measure annotation style instead of model errors.
 - [ ] Fill the [final decision table](README.md#13-final-decision-table); write `reports/final_recommendation.md` answering Q1–Q8, per-doc-type breakdown in an appendix
 - [ ] Review with every owner before it goes to the leader
 
+### Field generalization (Q9, decided 2026-11-26)
+
+Required fields change weekly during go-live and monthly in production: fields are added
+and removed, new doc types arrive, and business rules change per customer. Training on one
+fixed prompt per doc type teaches the model one output format, so every change would need
+new labels and a new fine-tune. Instead the model is trained to **read the field list**
+(schema-conditioned extraction): each training sample asks for a random subset of its
+annotated fields, sometimes with decoys whose answer is `null`. It returns printed values
+only; normalization and business rules run in code (T-L05). Self-supervised pretraining
+(MLM-style) was considered and rejected as the main path: no study shows it extracts fields
+that were never labeled, and the base models already read documents. Evidence and sources:
+the research report listed in T-003.
+
+#### T-L14 · Schema-conditioned extraction tools (core) 🟡
+
+**Owner:** Lead · **Depends on:** — · **Priority:** P0 · **Estimate:** 3 days
+
+Done 2026-11-26 on branch `T-L14-schema-conditioned-extraction` (T-L01 merged in), checked
+on CPU: 112 tests, tiny Gemma 4 / Qwen3.5 / Qwen3.6 MoE tests (SFT → GRPO on sampled
+requests) pass.
+
+- [x] Doc types: `instructions.md` (no field list) + field registry in `schema.json` (`description`, `examples`, `x-mode`, `x-decoys`); `cord_receipt` rewritten, `cord_receipt_full` added (every CORD field)
+- [x] Records: a field is annotated when its key is present; optional `label_source`; `validate.py` rejects `derive` fields in targets and lists whose entries annotate different keys, and `--reviewed-only` checks a test split
+- [x] `field_requests.py`: inference request (`fields.inference`, `fields.decoys`), training request (fixed, or sampled with `fields.sampling`), `fields.holdout`, projection of the target on a request
+- [x] Prompt rendered from the registry for the request; SFT, GRPO, HF and vLLM prediction, calibration (`quantization.calibration_requests`) and token stats all go through it; predictions record the requested `fields`
+- [x] Scoring: requested fields only, unannotated fields skipped, key presence, field groups (seen / held out / decoy) with missed and invented value rates; rewards `value_recall` and `null_accuracy`
+- [x] `public/cord_full` built with `convert_cord.py --relabel-from` (same ids, splits and images as `public/cord`; human labels); E20 configs in `configs/field_holdout/`
+- [x] Merged into `main` with T-L01 and T-L07 on 2026-11-27, without a PR (the lead's decision; GitHub Enterprise and PR rules come with T-003)
+- [x] Token lengths on `cord_full` (Qwen3.5-4B processor): system prompt 1,135 tokens for the full request; answers p95 602, max 1,604 (`max_new_tokens: 2048` fits); images up to 13.6K tokens with Qwen, so a Qwen E20 run needs `max_seq_length: 16384`
+- [ ] Copy `public/cord_full` to the GPU servers with `public/cord` (its `images` is a relative link to `../cord/images`)
+- [ ] On an L40, with the dev smoke configs (which now sample requests): the prefix check passes for sampled requests on real E2B and Qwen3.5-4B tokenizers (T-A01, T-B10); `quantize_w4a16.py` with `calibration_requests: sampled` (T-D02)
+
+**Done when:** the dev smoke runs pass on an L40 with sampled requests.
+
+#### T-L15 · E20 field holdout: fixed vs sampled requests ⬜
+
+**Owner:** Lead · **Depends on:** T-L14, M1 · **GPU:** L40 · **Priority:** P0 (gates M3) · **Estimate:** 4 days + GPU time
+
+Answers Q9 on public data before the reference config is frozen. Configs:
+`configs/field_holdout/` (Gemma 4 E2B). Data: `public/cord_full`, human labels, frozen dev
+split. Held out: `subtotal.tax_price`, `total.change_price`, `total.menu_quantity_count`,
+`menu[].unit_price` (36, 64, 29 and 30 of the 100 test receipts), plus the two decoys
+asked at evaluation.
+
+- [ ] **Agree the decision rule before running** (proposal): adopt sampled requests in the reference config if B is within noise of A on T1 (seen fields only: exact match and field accuracy, 95% bootstrap interval over receipts) and clearly better on the held-out group of the full request. If B loses on T1, raise `full_rate` before giving up on it
+- [ ] Z1: base E2B zero-shot (`gemma4_e2b_base.yaml`): the floor
+- [ ] A (`gemma4_e2b_fixed.yaml`) and B (`gemma4_e2b_sampled.yaml`): train; tune on validation only; then evaluate on test with the full request (T3), `__seen` (T1), `__held_out` (T2) and `__decoys` (T5), each with `predict_hf.py --source adapter:E20_gemma4_e2b_<arm>`
+- [ ] Report per field group: field accuracy, key presence, missed and invented value rates, exact match; by input type
+- [ ] Zero-shot references on the full request: NuExtract3 (with B, T-B12) and Qwen3.6-35B-A3B-FP8, the system the new model must not fall behind on new fields (with C)
+- [ ] Repeat A and B on Qwen3.5-4B (rankings of small models differ between benchmarks)
+- [ ] After the verdict: learning curve for the held-out fields (0 / 10 / 25 / 50 / 100 labeled receipts added to the best arm, with replay), which sizes "labels needed per new field"
+- [ ] After the verdict: the best arm through merge → W4A16 with `calibration_requests: full` vs `sampled` (with D): does quantization widen the gap between seen and held-out fields?
+- [ ] `reports/field_generalization.md`; write the verdict into README §4 and the reference config (with A)
+
+**Done when:** the verdict is in README §4 and the reference config uses it, before M3.
+
 ### W6 — RL with extraction rewards (Q8)
 
 SFT teaches the output format and most values; RL with a verifiable reward then optimizes
@@ -296,6 +366,7 @@ Not run on a GPU yet.
 - [x] Rewards from the evaluation scorer: field accuracy, exact match, similarity (1 − NED), parse
 - [x] `train_grpo.py`: continues the SFT adapter (`rl.init_adapter`), one prompt group per generation batch (image and spatial text never mixed), completions never logged
 - [x] Tiny-model tests (`LLMOPT_RUN_TINY=1`)
+- [x] 2026-11-26 (T-L14): each prompt asks for a training request (sampled once per sample with `fields.sampling`) and is scored on those fields only; new reward components `value_recall` (values not answered null) and `null_accuracy` (no invented values), weight 0 by default
 - [ ] On an L40: `scripts/train.py --config configs/dev/cord_e2b_lora_smoke.yaml`, then `scripts/train_grpo.py --config configs/dev/cord_e2b_grpo_smoke.yaml`; record peak VRAM, seconds per step, and whether `rewards/*/mean` rise in `train_log.jsonl`
 - [ ] Memory at real lengths: G completions of a 21K–32K prompt per step. If it does not fit: fewer generations (≥ 4), `training.batch_size: 1`, QLoRA
 - [ ] Generation speed: HF `generate` is slow for long prompts. Try `rl.use_vllm: true` (`vllm_mode: colocate`) in a separate `.venv-rl` with TRL's vLLM extra; never install vLLM in the training environment
@@ -308,7 +379,8 @@ Not run on a GPU yet.
 **Owner:** Lead · **Depends on:** T-L10, M3 (reference frozen) · **Priority:** P1 · **Estimate:** 4 days + GPU time
 
 - [ ] `configs/rl/gemma4_e2b_grpo.yaml`: `extends:` the reference, `rl.init_adapter: adapter:<E1 run id>`; tune on validation only
-- [ ] Reward weights (one variable per run): `field_accuracy` + `exact_match` (default) vs adding `similarity`; watch for reward hacking (e.g. dropping list items to avoid wrong ones)
+- [ ] Reward weights (one variable per run): `field_accuracy` + `exact_match` (default) vs adding `similarity`, `value_recall` (rare fields are null on most documents, so field accuracy alone rewards answering null) or `null_accuracy`; watch for reward hacking (e.g. dropping list items to avoid wrong ones)
+- [ ] Requests as the reference SFT (sampled if E20 says so); also score the GRPO adapter on E20's held-out and decoy conditions: RL is expected to keep generalization better than SFT, but only if the SFT start did not overfit
 - [ ] Group size (4 / 8), `beta` 0 vs 0.01, learning rate (LoRA RL usually needs ~10× the full fine-tuning rate)
 - [ ] Final run on test: exact match and field accuracy vs the SFT start, by input type and doc type; training cost (GPU hours, peak VRAM)
 - [ ] If E2B already passes 95% after SFT: run E18 on the weakest candidate that misses it (e.g. Qwen3.5-2B on spatial text)
@@ -340,6 +412,7 @@ Not run on a GPU yet.
 - [ ] `scripts/train.py --config configs/dev/cord_e2b_lora_smoke.yaml --check-loss 8` on real E2B: the two losses agree (BF16 tolerance ~1e-3 relative) for image and spatial-text samples
 - [ ] Smoke run on a ~24 GB GPU, then a 200-step run on an L40: loss goes down, eval loss runs, the adapter loads in `predict_hf.py --source adapter`
 - [ ] Check the log line "LoRA on N modules": language model only
+- [ ] The smoke config samples requests (`fields.sampling`, T-L14): `--check-loss` and a few `SFTDataset` draws on real E2B pass the prefix check, and decoded answers hold exactly the requested fields
 - [ ] Fix what breaks, with tests where possible (`LLMOPT_RUN_TINY=1 uv run --group train pytest tests/test_hf_tiny.py`)
 
 **Done when:** a dev LoRA run trains, saves and predicts on an L40, and the fixes are merged.
@@ -368,7 +441,7 @@ See [Risk 1](README.md#risk-1-training-memory-at-32k-context).
 
 **Owner:** A · **Depends on:** T-A02, T-A03 · **Priority:** P0 · **Estimate:** 3 days + GPU time
 
-- [ ] `configs/reference/gemma4_e2b_lora.yaml` (rank 16, alpha 32): train, evaluate on **validation**
+- [ ] `configs/reference/gemma4_e2b_lora.yaml` (rank 16, alpha 32, `fields.sampling` as E20 decides, T-L15): train, evaluate on **validation**
 - [ ] Tune on validation (learning rate, epochs, image settings); one variable per run
 - [ ] Publish the config as the **provisional reference**; tell B, D, E
 - [ ] Final run on test
@@ -497,12 +570,16 @@ The tiny-model tests already pass on Qwen3.5 and Qwen3.6 MoE (CPU). On real weig
 - [ ] Zero-shot baseline, then QLoRA NF4 (`extends:` the reference with Qwen's `model.id`, `chat_template_kwargs`, `lora.target_modules`); also try BF16 LoRA if it fits at 32K
 - [ ] Merge into BF16, W4A16 (T-D09), serve; compare with E13 (4B) and E8 (Gemma 4 12B)
 
-#### T-B12 · E17 NuExtract3 (P2) ⬜
+#### T-B12 · E17 NuExtract3 ⬜
 
-**Owner:** B · **Depends on:** T-B10 · **Priority:** P2 · **Estimate:** 2 days
+**Owner:** B · **Depends on:** T-B10 · **Priority:** P1 (was P2; raised 2026-11-26) · **Estimate:** 2 days
 
-- [ ] Zero-shot in NuExtract3's own format: a template derived from each doc type's `schema.json` (`chat_template_kwargs.template`), on validation
-- [ ] If it beats Qwen3.5-4B zero-shot clearly: LoRA with our prompts as E13, then W4A16
+NuExtract3 is a public model already trained to read a field template, the interface the
+team now trains for, on the Qwen3.5-4B base.
+
+- [ ] Zero-shot in NuExtract3's own format: a template derived from each doc type's field registry (types, plus descriptions where the format allows; `chat_template_kwargs.template`), on validation; thinking off
+- [ ] The same on E20's `cord_full` with the full request, as a zero-shot reference for T-L15
+- [ ] If it beats Qwen3.5-4B zero-shot clearly: LoRA with our prompts (sampled requests) as E13, then W4A16
 
 #### T-B09 · Q2 report ⬜
 
@@ -593,8 +670,8 @@ Production must queue or use shorter contexts.
 
 **Owner:** C · **Priority:** P2 · **Estimate:** 2 days
 
-- [ ] vLLM structured outputs from the doc type `schema.json`: parse rate, accuracy, latency
-- [ ] Multi-LoRA serving (one adapter per doc type?) vs a merged model; shorter system prompt after fine-tuning
+- [ ] vLLM structured outputs from the doc type `schema.json` projected on the request (a schema that forces exactly the requested keys): parse rate, key presence, accuracy, latency
+- [ ] Multi-LoRA serving (one adapter per doc type?) vs a merged model. The "shorter system prompt after fine-tuning" idea is dropped (2026-11-26): the field list is what lets a field change be a registry change
 
 ---
 
@@ -615,6 +692,7 @@ Production must queue or use shorter contexts.
 
 - [ ] `quantization/quantize_w4a16.py --config configs/dev/cord_e2b_base_w4a16.yaml` with `pipeline: basic` (default): GPU memory and time at real lengths
 - [ ] Same with `pipeline: sequential`, `sequential_targets: [Gemma4TextDecoderLayer]` (check the class name), one input type; needed later for 26B-A4B
+- [ ] Once with `quantization.calibration_requests: sampled` (needs `fields.sampling` in the config): the calibration set mixes request shapes (T-L14)
 - [ ] `quantization/verify_quantized.py` passes; the checkpoint serves with vLLM (with C)
 
 #### T-D03 · First accuracy delta ⬜
@@ -644,7 +722,7 @@ Gated DeltaNet `linear_attn`), `shared_expert` and `mtp` in BF16.
 
 - [ ] `configs/gemma4_e2b/quant_w4a16.yaml`: `extends:` the reference, `quantization.source: merged:<E3 run id>`, `serving.source: quantized`
 - [ ] Quantize, verify, serve, evaluate, benchmark; BF16 vs W4A16 table (accuracy by input type, VRAM, latency p50/p95, throughput)
-- [ ] Only after this baseline: tune the recipe on validation (GPTQ vs AWQ, calibration mix)
+- [ ] Only after this baseline: tune the recipe on validation, one variable per run: GPTQ vs AWQ (GPTQ fits its calibration set more closely), `calibration_requests: full` vs `sampled`. Judge each by the drop from BF16 on seen fields and on E20's held-out and decoy conditions, not on the fixed request alone: a calibration set of one fixed prompt can narrow the model a second time
 
 #### T-D05 · E5 Gemma QAT checkpoints ⬜
 
@@ -665,6 +743,9 @@ Gated DeltaNet `linear_attn`), `shared_expert` and `mtp` in BF16.
 #### T-D07 · Calibration comparison and FP8 weights (P2) ⬜
 
 **Owner:** D · **Priority:** P2 · **Estimate:** 2 days
+
+- [ ] Calibration mixes beyond T-D04: task samples with sampled requests plus general Vietnamese instruction data (a proposed starting mix is half task, a quarter Vietnamese instructions, a quarter multilingual chat; unvalidated); 2–3 random draws of each mix to see the variance
+- [ ] Vietnamese canary: exact match with diacritics on name and address fields, BF16 vs W4A16
 
 #### T-D08 · Q3 / Q4 report ⬜
 
@@ -777,12 +858,17 @@ Decisions made while working. Move settled ones into README §4.
 | 2026-11-20 | The lead owns W6, RL with GRPO on top of SFT; TRL is used for GRPO only; the RL run continues the SFT adapter | Lead | T-L10 |
 | 2026-11-20 | `visual` (Qwen's vision tower) and MoE router gates are excluded from LoRA / W4A16 by default | Lead | T-D09 |
 | 2026-11-25 | CORD is re-split by receipt with our default ratios, not the official split; it is built once and copied to every server, checked with `SHA256SUMS` | Lead | T-L01 |
+| 2026-11-26 | The model is trained to read the field list (schema-conditioned extraction): the system prompt is rendered from a field registry for each request; training requests are sampled subsets with decoys; E20 checks this against one fixed prompt before M3. MLM-style self-supervised pretraining is not the main path | Lead | T-L14, T-L15 |
+| 2026-11-26 | The model returns printed values only. Normalization and per-customer business rules (`derive` fields) run in code, versioned, never in the model or the labels | Lead | T-L02, T-L05 |
+| 2026-11-26 | A field is annotated when its key is present (`null` = checked absent); the registry grows field by field; the test split is human-checked (`label_source`) | Lead | T-L02, T-L03 |
+| 2026-11-26 | E17 (NuExtract3) is P1; the P2 idea "shorter system prompt after fine-tuning" is dropped | Lead | T-B12, T-C09 |
 
 ## Daily log
 
 One line per working day: task IDs, what moved, what is next or blocking. Newest on top.
 
 ### Lead
+- 2026-11-26 · Research on generalizing to new fields (report listed in T-003); plan changed: Q9, T-L14, T-L15 (E20), T-L02/T-L03/T-L05 extended. T-L14 🟡: branch `T-L14-schema-conditioned-extraction` (T-L01 merged in): field registry, field requests, sampled SFT/GRPO requests, scoring by field group, `public/cord_full`, E20 configs; 112 CPU tests and the tiny-model tests pass. 2026-11-27: merged into `main` with T-L01 and T-L07 and pushed. Next: copy `cord` and `cord_full` to the GPU servers, T-003, then T-L15 on an L40 once M1 is reached.
 - 2026-11-25 · T-L07 🟡: aggregate_results, plot_tradeoffs (`report` group, in CI), error_analysis, with tests on synthetic metrics and fixture evaluations. Next: run them on the first dev metrics.
 - 2026-11-25 · T-L01 🟡: CORD v2 converted, validated, split (800/50/100/50 receipts), benchmark set of 100, `docs/datasets.md`; converter fix for sections annotated twice. Next: copy to the GPU servers, then T-L07.
 - 2026-11-20 · Candidate models researched (`docs/models.md`), reading list (`docs/reading.md`), plan updated for Qwen3.5/3.6 (E13–E19, R1, Q7, Q8). T-L10 🟡: GRPO drafted and CPU-checked on tiny Gemma 4 / Qwen3.5 / Qwen3.6 MoE, paused before the GPU run. Next: T-L01, then the T-L10 GPU steps.
