@@ -2,7 +2,9 @@
 
 Only the language model is quantized; `quantization.ignore` keeps the vision/audio
 towers and lm_head in BF16. Calibration uses the `calibration` split, built with the
-same chat template as training (prompt + answer), with real lengths.
+same chat template as training (prompt + answer), with real lengths. Each sample asks for
+the inference fields, or with `quantization.calibration_requests: sampled` for a random
+training request, so the field-list reading learned in SFT is calibrated too.
 
 Runs in .venv-quant. Written against the LLM Compressor multimodal examples; check it
 against the installed version in T-D02.
@@ -25,6 +27,7 @@ from transformers import AutoModelForCausalLM, AutoModelForImageTextToText
 from llm_opt_lab.config import ExperimentConfig, load_config
 from llm_opt_lab.data import filter_samples, load_samples
 from llm_opt_lab.doc_types import load_doc_types
+from llm_opt_lab.field_requests import inference_request, training_request
 from llm_opt_lab.hf.loading import DTYPES, is_text_only, load_processor
 from llm_opt_lab.hf.sft_data import build_features
 from llm_opt_lab.paths import RunPaths, directory_size, resolve_model_source
@@ -55,13 +58,20 @@ def calibration_dataset(config: ExperimentConfig, processor: Any) -> Dataset:
     doc_types = load_doc_types(config.data.doc_types_dir)
     rows: list[dict[str, Any]] = []
     for sample in samples:
+        doc_type = doc_types[sample.doc_type]
+        if q.calibration_requests == "sampled":
+            rng = random.Random(f"{config.seed}:{sample.id}:calibration")
+            request = training_request(sample.target, doc_type, config.fields, rng)
+        else:
+            request = inference_request(doc_type, config.fields)
         features = build_features(
             sample,
-            doc_types[sample.doc_type],
+            doc_type,
             processor,
             config.data.dir,
             text_only=is_text_only(config),
             chat_template_kwargs=config.model.chat_template_kwargs,
+            request=request,
         )
         if features["input_ids"].shape[0] > q.max_seq_length:
             continue

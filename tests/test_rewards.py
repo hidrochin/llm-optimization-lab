@@ -31,6 +31,8 @@ def test_perfect_prediction_gets_every_reward():
         "exact_match": 1.0,
         "similarity": 1.0,
         "parse": 1.0,
+        "value_recall": 1.0,
+        "null_accuracy": 1.0,
     }
 
 
@@ -60,7 +62,25 @@ def test_unparsed_output_gets_nothing():
         "exact_match": 0.0,
         "similarity": 0.0,
         "parse": 0.0,
+        "value_recall": 0.0,
+        "null_accuracy": 0.0,
     }
+
+
+def test_missed_and_invented_values_have_their_own_components():
+    # Answering null everywhere scores well on field accuracy when most fields are null;
+    # value_recall separates it. Inventing a value lowers null_accuracy.
+    lazy = {
+        "store": {"name": None, "address": None},
+        "date": None,
+        "items": [{"name": None, "quantity": None, "price": None}],
+        "total": None,
+    }
+    r = rewards(json.dumps(lazy))
+    assert r["value_recall"] == 0.0 and r["null_accuracy"] == 1.0
+    inventing = {**TARGET, "store": {"name": "Tiệm Bình", "address": "1 Lê Lợi"}}
+    r = rewards(json.dumps(inventing, ensure_ascii=False))
+    assert r["value_recall"] == 1.0 and r["null_accuracy"] == 0.0
 
 
 def test_completion_text_accepts_trl_formats():

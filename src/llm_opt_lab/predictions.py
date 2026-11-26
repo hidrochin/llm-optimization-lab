@@ -20,6 +20,9 @@ class Prediction(StrictModel):
     id: str
     raw_output: str | None = None
     error: str | None = Field(default=None, description="Set when the request itself failed")
+    # Fields the prompt asked for (generic paths, decoys included); evaluation scores these.
+    # None: the config's inference request.
+    fields: list[str] | None = None
     latency_ms: float | None = None
     ttft_ms: float | None = None
     prompt_tokens: int | None = None

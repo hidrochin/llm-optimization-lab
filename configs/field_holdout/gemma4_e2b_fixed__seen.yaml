@@ -1,0 +1,7 @@
+# E20 condition T1, arm fixed: ask for the trained fields only (no regression allowed).
+# predict_hf.py --config <this> --source adapter:E20_gemma4_e2b_fixed
+extends: gemma4_e2b_fixed.yaml
+run_name: gemma4_e2b_fixed__seen
+
+fields:
+  inference: seen

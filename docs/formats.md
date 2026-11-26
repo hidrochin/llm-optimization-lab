@@ -7,7 +7,7 @@ covered by `tests/`. Changing one is a core change: open a PR and ask the lead t
 |----------|-----------|---------|------|
 | [Dataset records](#1-dataset-records) | Lead (data tasks) | everyone | `data.py` |
 | [Doc types](#2-doc-types) | Lead (data tasks) | everyone | `doc_types.py` |
-| [Prompt construction](#3-prompt-construction) | — | training, HF inference, vLLM, calibration | `prompting.py` |
+| [Prompt construction](#3-prompt-construction) | — | training, HF inference, vLLM, calibration | `prompting.py`, `field_requests.py` |
 | [Predictions](#4-predictions) | every inference path | `scripts/evaluate.py` | `predictions.py` |
 | [Scoring](#5-scoring) | — | `scripts/evaluate.py` | `parsing.py`, `postprocess.py`, `metrics.py` |
 | [Metrics JSON](#6-metrics-json) | every stage | result tables (T-L07), README | `results.py` |
@@ -57,36 +57,89 @@ document and its spatial text are two records sharing a `group_id`:
 | `image` | if `input_type` is `image` | Path relative to the data root |
 | `spatial_text` | if `input_type` is `spatial_text` | The spatial text, inline |
 | `target` | yes | Ground truth JSON, nested, following the doc type schema |
+| `label_source` | no | `human`, `teacher` (written by a model, e.g. the production Qwen3.6, not checked) or `teacher_reviewed` (written by a model, then checked by a person) |
 | `meta` | no | Anything else (source, annotator, flags). Never used by training or scoring |
 
+**What the target says about each field.** A field is *annotated* when its key is present:
+
+| In the target | Meaning | Training | Scoring |
+|---------------|---------|----------|---------|
+| `"tax": "2,727"` | the value, as printed | trained on | scored |
+| `"tax": null` (`[]` for a list) | checked: not on the document | trained on (the answer is null) | scored |
+| key missing | not annotated (e.g. the field was added to the registry later) | never asked | skipped when asked |
+
+So a record annotated before a field existed stays usable: it is never asked for that field.
+Every entry of a list annotates the same keys. A target holds **printed facts only**, never a
+`derive` field (§2): business rules compute those after extraction.
+
 Unknown fields are rejected. `scripts/data/validate.py` also checks every target against
-its doc type schema and that image files exist. How to write `target` is in the
-annotation guideline (T-L02).
+its doc type schema, that image files exist, that no target holds a `derive` field, and that
+list entries annotate the same keys; `--reviewed-only` also requires a `human` or
+`teacher_reviewed` label (test splits, T-L03). How to write `target` is in the annotation
+guideline (T-L02).
 
 ## 2. Doc types
 
-Each document type has its own system prompt and output schema:
+Each document type has a field registry and instructions:
 
 ```text
 doc_types/<name>/
-├── system_prompt.md   # sent verbatim as the system message (leading/trailing whitespace stripped)
-└── schema.json        # JSON Schema of the target
+├── instructions.md    # what the document is and doc-type rules; never lists fields
+└── schema.json        # the field registry: JSON Schema of the target plus what the model sees
 ```
 
 The schema uses a subset of JSON Schema: `object` with `properties`, `array` with
-`items`, and leaves. A leaf may set `"x-field-type"` to choose its normalizer (default
-`text`; today also `date` and `number`, filled in by T-L05). Unknown field types are an
-error at evaluation time. Keeping real JSON Schema means vLLM structured outputs can use
-the same file (T-C09). `doc_types/cord_receipt/` is the public dev doc type.
+`items`, and leaves. A leaf may set:
+
+| Key | Meaning |
+|-----|---------|
+| `description` | What the field is and where it is printed; shown to the model. Write it so a new annotator could find the value |
+| `examples` | 1–3 typical values as printed; shown to the model |
+| `x-field-type` | Normalizer used in scoring and production (default `text`; also `date`, `number`, filled in by T-L05). Unknown types are an error |
+| `x-mode` | `extract` (default): printed on the document, asked of the model. `derive`: computed by business rules after extraction (T-L05), never asked, never in a target |
+
+The root may list `x-decoys`: `[{"name", "description"}]` fields that can never appear on
+this doc type (a container number on a receipt). Training and evaluation ask for them to
+teach and measure answering `null`. Keeping real JSON Schema means vLLM structured outputs
+can use the same file (T-C09). `doc_types/cord_receipt/` is the public dev doc type (12
+fields); `doc_types/cord_receipt_full/` has every CORD field, for the field-holdout
+experiment E20.
+
+**Raw data.** The model returns values exactly as printed (`"5 Pallet"`, `"45,500"`).
+Two layers run after it, in code, in production as in scoring:
+
+1. Normalization (`postprocess.py`, T-L05): one value, a fixed mapping that does not depend
+   on the customer: `"45,500"` → `45500`, a date → ISO 8601, `"Pallet"` → a unit code.
+2. Business rules (T-L05), per customer and versioned: anything that combines facts or
+   depends on who asks, e.g. "3 Pallet, 5 Carton" → 3, 5 or 8 units. These are `derive` fields.
+
+Neither is ever taught to the model, so a rule or code-list change needs no new labels and
+no retraining.
 
 ## 3. Prompt construction
 
-`build_messages(sample, doc_type, data_dir, include_target=...)` returns:
+`build_messages(sample, doc_type, data_dir, request=..., include_target=...)` returns:
 
-1. `system`: the doc type's system prompt, byte-identical across requests so vLLM prefix
-   caching can share it
+1. `system`: `render_system_prompt(doc_type, request)`: the instructions, the JSON structure
+   of the requested fields, one line per field (path, description, examples), and the
+   shared output rules (copy as printed, `null` / `[]` when absent, JSON only)
 2. `user`: the document only, as one image part (absolute path) or one text part (spatial text)
-3. `assistant` (training only): `serialize_target(target)`, i.e. `json.dumps(target, ensure_ascii=False)`
+3. `assistant` (training only): `serialize_target(project(target, request.paths))`: the
+   target restricted to the requested fields, in request order; decoys are `null`
+
+A **request** (`field_requests.py`) is the list of fields the prompt asks for:
+
+| Where | Request | Config |
+|-------|---------|--------|
+| HF inference, vLLM, evaluation | Fixed per doc type: every extract field (`full`), all but the holdout (`seen`), or the holdout only (`held_out`), plus the first N decoys | `fields.inference`, `fields.decoys` |
+| Training (SFT, GRPO) | Every annotated field minus the holdout, in registry order; with `fields.sampling`, a random subset per draw (size uniform in [`min_fields`, all]; `full_rate` of draws keep every field), shuffled, sometimes with decoys | `fields.holdout`, `fields.sampling` |
+| Calibration | The inference request, or sampled as in training | `quantization.calibration_requests` |
+
+The inference request depends only on the doc type and the config, so its system prompt is
+byte-identical across requests and vLLM prefix caching can share it. Sampled training
+requests teach the model to read the field list, so adding or removing a field later is a
+registry change instead of a new output format (decided 2026-11-26; E20 measures it).
+SFT seeds each draw with (seed, sample id, draw number), so runs are reproducible.
 
 `to_openai_messages` converts this to the OpenAI chat format for vLLM (images become
 base64 data URLs). Training (`hf/sft_data.py`), HF inference, quantization calibration
@@ -99,19 +152,26 @@ In training, only the answer tokens (and the end-of-turn after them) have labels
 
 ```json
 {"id": "receipt-001-img", "raw_output": "{\"store\": ...}", "error": null,
+ "fields": ["store.name", "items[].price", "total"],
  "latency_ms": 812.4, "ttft_ms": 95.1, "prompt_tokens": 24117, "completion_tokens": 186}
 ```
 
 - `raw_output` is the untouched model text. Parsing happens in evaluation, not in the predictor.
+- `fields` is the request the prompt asked for (decoys included). Evaluation scores these,
+  so re-scoring after a registry change still scores what was asked. When absent, the
+  config's inference request is used.
 - `error` is set when the request itself failed (OOM, timeout); the sample then counts as unparsed.
 - Every sample of the evaluated split needs a line. A missing id is an error, not a lower score.
 - Timing and token fields are optional; fill them when the backend reports them.
 
 ## 5. Scoring
 
-For each sample: parse `raw_output` → normalize prediction and target with the same
-rules → flatten both to leaf paths → compare.
+For each sample: restrict the target to the requested fields → parse `raw_output` →
+normalize prediction and target with the same rules → flatten both to leaf paths → compare.
 
+- **Requested fields only:** the gold answer is the target projected on the request
+  (decoys are `null`). A requested field the record does not annotate (§1) is skipped: not
+  scored, and a predicted value for it is not an extra field.
 - **Parse:** strips a `<think>` block and a Markdown code fence, then takes the outermost
   `{...}`. Anything that is not a JSON object is unparsed.
 - **Normalize:** NFC, collapse whitespace, trim, casefold, empty strings → `null`, numbers
@@ -131,9 +191,16 @@ rules → flatten both to leaf paths → compare.
 | Field-level accuracy | Correct target fields / all target fields, over the whole split |
 | NED | Mean over target fields of Levenshtein distance / length of the longer string |
 | Parse rate | Share of samples whose output parsed to a JSON object |
+| Key presence | Share of target leaf paths present in the output: a dropped or renamed key, or a missing list entry, lowers it even when the expected value is null |
 
 Reported overall, by input type, by doc type, and per `(doc type, field)` in
 `artifacts/eval/<run_id>/<split>/fields.json`, lowest accuracy first.
+
+**Field groups.** When a request holds held-out fields (`fields.holdout`) or decoys, the
+fields are also summarized as `seen`, `held_out` and `decoy`: field accuracy, NED, key
+presence, **missed value rate** (expected value, predicted null) and **invented value
+rate** (expected null, predicted a value; for decoys, the hallucination rate). The
+field-holdout experiment E20 reads its verdict from these groups.
 
 ## 6. Metrics JSON
 
@@ -158,9 +225,12 @@ under `stages`:
   },
   "n_samples": 400, "n_fields": 9120,
   "exact_match": 0.96, "field_accuracy": 0.991, "ned_mean": 0.004, "parse_rate": 1.0,
-  "meets_target": true,
+  "key_presence": 0.998, "meets_target": true,
   "by_input_type": {"image": {"n": 200, "n_fields": 4560, "exact_match": 0.95, "...": "..."}},
   "by_doc_type":   {"invoice": {"...": "..."}},
+  "by_field_group": {"seen": {"n_fields": 8800, "field_accuracy": 0.993, "key_presence": 0.999,
+                              "missed_value_rate": 0.004, "invented_value_rate": 0.002, "...": "..."},
+                     "held_out": {"...": "..."}, "decoy": {"...": "..."}},
   "train_peak_vram_gb": 41.2, "train_time_s": 15120, "train_steps_per_s": 0.11,
   "trainable_params": 14680064, "n_train_samples": 8000, "n_dropped_over_length": 3,
   "merge_max_abs_logit_diff": 0.03, "merge_identical_output_rate": 1.0,
@@ -215,6 +285,17 @@ run_name: gemma4_e2b_qlora_r16
 method: {name: qlora, quantization: nf4, double_quant: true}
 ```
 
+The `fields:` section chooses the requests of §3 (defaults shown):
+
+```yaml
+fields:
+  holdout: {}          # doc type -> fields or decoys training never asks for (E20)
+  inference: full      # full | seen | held_out: what inference and evaluation ask for
+  decoys: 0            # decoys added to inference requests (the doc type's first N)
+  sampling: null       # null: one fixed training request; {} for the defaults below
+  # sampling: {full_rate: 0.4, min_fields: 1, decoy_rate: 0.3, max_decoys: 2, shuffle: true}
+```
+
 `quantization.source`, `serving.source` and `predict_hf.py --source` name what to load:
 
 | Source | Loads |
@@ -227,6 +308,10 @@ method: {name: qlora, quantization: nf4, double_quant: true}
 
 `rl.init_adapter` takes `adapter:<run_id>` only: an RL run continues that SFT adapter, so
 its own adapter is again relative to `model.id` and every source above works for it.
+
+To evaluate one adapter under several requests (E20's conditions), give each request its
+own config with its own `run_name` and load the trained run's adapter:
+`predict_hf.py --config <condition config> --source adapter:<trained run id>`.
 
 A vLLM server serves the model under the run id, so start it (`serve_vllm.py`) and query it
 (`predict_vllm.py`, `benchmark_api.py`) with the same config.

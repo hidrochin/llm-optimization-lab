@@ -1,7 +1,8 @@
 """Token length statistics per doc type x input type, with the model's own processor.
 
-Columns: system prompt, document (prompt minus system prompt: document, image tokens and
-chat template), answer, total. Recommends `training.max_seq_length` and
+Columns: system prompt (of the inference request: every field the config asks for),
+document (prompt minus system prompt: document, image tokens and chat template), answer,
+total. Recommends `training.max_seq_length` and
 `evaluation.max_new_tokens`. CPU is enough.
 
 Usage:
@@ -19,9 +20,11 @@ from pathlib import Path
 from llm_opt_lab.config import load_config
 from llm_opt_lab.data import filter_samples, load_samples
 from llm_opt_lab.doc_types import load_doc_types
+from llm_opt_lab.field_requests import inference_request
 from llm_opt_lab.hf.loading import is_text_only, load_processor
 from llm_opt_lab.hf.sft_data import IGNORE_INDEX, build_features
 from llm_opt_lab.profiling import percentile
+from llm_opt_lab.prompting import render_system_prompt
 
 COLUMNS = ("system", "document", "answer", "total")
 
@@ -44,8 +47,14 @@ def main(argv: list[str] | None = None) -> int:
         config.data.input_types,
     )[: args.limit]
 
+    # The inference request: its system prompt is the one prefix caching shares.
+    requests = {name: inference_request(dt, config.fields) for name, dt in doc_types.items()}
     system_tokens = {
-        name: len(tokenizer(dt.system_prompt, add_special_tokens=False)["input_ids"])
+        name: len(
+            tokenizer(render_system_prompt(dt, requests[name]), add_special_tokens=False)[
+                "input_ids"
+            ]
+        )
         for name, dt in doc_types.items()
     }
     lengths: dict[str, dict[str, list[int]]] = defaultdict(lambda: defaultdict(list))
@@ -57,6 +66,7 @@ def main(argv: list[str] | None = None) -> int:
             config.data.dir,
             text_only=is_text_only(config),
             chat_template_kwargs=config.model.chat_template_kwargs,
+            request=requests[sample.doc_type],
         )
         total = int(features["input_ids"].shape[0])
         answer = int((features["labels"] != IGNORE_INDEX).sum())

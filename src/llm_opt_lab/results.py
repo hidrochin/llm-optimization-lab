@@ -17,7 +17,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from llm_opt_lab.metrics import QualityStats
+from llm_opt_lab.metrics import FieldGroupStats, QualityStats
 
 
 class StageInfo(BaseModel):
@@ -70,9 +70,11 @@ class RunMetrics(BaseModel):
     field_accuracy: float | None = None
     ned_mean: float | None = None
     parse_rate: float | None = None
+    key_presence: float | None = None
     meets_target: bool | None = None
     by_input_type: dict[str, QualityStats] | None = None
     by_doc_type: dict[str, QualityStats] | None = None
+    by_field_group: dict[str, FieldGroupStats] | None = None  # seen / held_out / decoy
 
     # Training
     train_peak_vram_gb: float | None = None
@@ -183,3 +185,15 @@ def record_metrics(
         json.dumps(metrics.model_dump(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
     return metrics
+
+
+def load_run_metrics(
+    metrics_dir: str | Path = "results/metrics", *, include_dev: bool = False
+) -> list[RunMetrics]:
+    """Every metrics file in `metrics_dir`, validated. Dev runs are left out unless asked:
+    they only validate tools and are never results."""
+    runs = [
+        RunMetrics.model_validate_json(path.read_text(encoding="utf-8"))
+        for path in sorted(Path(metrics_dir).glob("*.json"))
+    ]
+    return [run for run in runs if include_dev or run.experiment_id != "DEV"]

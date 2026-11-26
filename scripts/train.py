@@ -8,6 +8,10 @@ Writes the adapter to artifacts/adapters/<run_id>/, trainer checkpoints to
 artifacts/checkpoints/<run_id>/, the log history to results/logs/<run_id>/train_log.jsonl,
 and training metrics into results/metrics/<run_id>.json.
 
+Each training sample asks for the fields of a training request: every annotated field
+(minus `fields.holdout`), or a random subset per draw with `fields.sampling`
+(docs/formats.md §3).
+
 The default loss (`training.loss: label_positions`) applies lm_head only at positions whose
 next token is part of the answer, which avoids materializing 32K x 262K logits (README,
 Risk 1). `--check-loss N` compares it with the full-logits loss on N training samples.
@@ -153,10 +157,17 @@ def main(argv: list[str] | None = None) -> int:
         "chat_template_kwargs": config.model.chat_template_kwargs,
         "max_seq_length": tc.max_seq_length,
         "over_length": tc.over_length,
+        "seed": config.seed,
     }
-    train_set = SFTDataset(load_split(config, "train", tc.max_train_samples), **dataset_kwargs)
+    train_set = SFTDataset(
+        load_split(config, "train", tc.max_train_samples), fields=config.fields, **dataset_kwargs
+    )
+    # Eval loss always uses the fixed request (every annotated, non-held-out field).
+    fixed = config.fields.model_copy(update={"sampling": None})
     eval_set = (
-        SFTDataset(load_split(config, "validation", tc.eval_samples), **dataset_kwargs)
+        SFTDataset(
+            load_split(config, "validation", tc.eval_samples), fields=fixed, **dataset_kwargs
+        )
         if tc.eval_steps
         else None
     )

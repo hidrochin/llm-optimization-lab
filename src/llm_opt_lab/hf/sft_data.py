@@ -1,20 +1,26 @@
 """Supervised fine-tuning features: chat template, image inputs, and label masking.
 
 Only the assistant answer (the serialized target and the end-of-turn tokens after it)
-is trained on; every prompt token gets label -100.
+is trained on; every prompt token gets label -100. Each sample asks for the fields of a
+training request (field_requests.py): every annotated field, or a fresh random subset each
+time the sample is drawn when `fields.sampling` is set.
 """
 
 from __future__ import annotations
 
 import logging
+import random
+from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 import torch
 
+from llm_opt_lab.config import FieldsConfig
 from llm_opt_lab.data import Sample
 from llm_opt_lab.doc_types import DocType
+from llm_opt_lab.field_requests import Request, longest_training_request, training_request
 from llm_opt_lab.prompting import Message, build_messages, to_openai_messages
 
 IGNORE_INDEX = -100
@@ -58,13 +64,15 @@ def build_features(
     *,
     text_only: bool,
     chat_template_kwargs: dict[str, Any],
+    request: Request | None = None,
 ) -> dict[str, torch.Tensor]:
     """Model inputs plus `labels` for one sample, without a batch dimension on sequences.
 
-    The prompt (system + document + generation prompt) must be a token prefix of the full
-    conversation; otherwise masking would be wrong and this raises.
+    `request` defaults to the doc type's full inference request. The prompt (system +
+    document + generation prompt) must be a token prefix of the full conversation;
+    otherwise masking would be wrong and this raises.
     """
-    common = {"text_only": text_only}
+    common = {"text_only": text_only, "request": request}
     prompt = apply_template(
         processor,
         chat_messages(sample, doc_type, data_dir, **common),
@@ -102,7 +110,12 @@ def _is_sequence(value: torch.Tensor, length: int) -> bool:
 
 
 class SFTDataset(torch.utils.data.Dataset):
-    """Builds features on the fly; drops or rejects samples longer than `max_seq_length`."""
+    """Builds features on the fly; drops or rejects samples longer than `max_seq_length`.
+
+    With `fields.sampling`, every draw of a sample asks for a new random request, seeded by
+    (seed, sample id, draw number) so a run is reproducible. The length check uses the
+    longest request a sample can draw.
+    """
 
     def __init__(
         self,
@@ -115,16 +128,23 @@ class SFTDataset(torch.utils.data.Dataset):
         chat_template_kwargs: dict[str, Any],
         max_seq_length: int,
         over_length: str = "drop",
+        fields: FieldsConfig | None = None,
+        seed: int = 0,
     ) -> None:
         self.doc_types = doc_types
         self.processor = processor
         self.data_dir = data_dir
         self.text_only = text_only
         self.chat_template_kwargs = chat_template_kwargs
+        self.fields = fields or FieldsConfig()
+        self.seed = seed
+        self.draws: Counter[str] = Counter()
         self.samples: list[Sample] = []
         self.dropped: list[str] = []
         for i, sample in enumerate(samples):
-            length = self._build(sample)["input_ids"].shape[0]
+            doc_type = self.doc_types[sample.doc_type]
+            longest = longest_training_request(sample.target, doc_type, self.fields)
+            length = self._build(sample, longest)["input_ids"].shape[0]
             if length <= max_seq_length:
                 self.samples.append(sample)
             elif over_length == "drop":
@@ -138,7 +158,7 @@ class SFTDataset(torch.utils.data.Dataset):
                 "dropped %d over-length samples, e.g. %s", len(self.dropped), self.dropped[:5]
             )
 
-    def _build(self, sample: Sample) -> dict[str, torch.Tensor]:
+    def _build(self, sample: Sample, request: Request) -> dict[str, torch.Tensor]:
         return build_features(
             sample,
             self.doc_types[sample.doc_type],
@@ -146,13 +166,23 @@ class SFTDataset(torch.utils.data.Dataset):
             self.data_dir,
             text_only=self.text_only,
             chat_template_kwargs=self.chat_template_kwargs,
+            request=request,
         )
+
+    def request(self, sample: Sample) -> Request:
+        """The request for the next draw of `sample`."""
+        rng = None
+        if self.fields.sampling is not None:
+            rng = random.Random(f"{self.seed}:{sample.id}:{self.draws[sample.id]}")
+            self.draws[sample.id] += 1
+        return training_request(sample.target, self.doc_types[sample.doc_type], self.fields, rng)
 
     def __len__(self) -> int:
         return len(self.samples)
 
     def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
-        return self._build(self.samples[index])
+        sample = self.samples[index]
+        return self._build(sample, self.request(sample))
 
 
 class SFTCollator:

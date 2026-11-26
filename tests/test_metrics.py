@@ -70,6 +70,27 @@ def test_ned():
     assert normalized_edit_distance("abcd", "abce") == pytest.approx(0.25)
 
 
+def test_key_presence_and_ignored_paths():
+    result = score_sample(
+        "s1", "receipt", "image", GOLD, {"store": {"name": "an"}, "items": [], "date": "x"},
+        ignore=frozenset({"date"}),
+    )  # fmt: skip
+    present = {f.path: f.present for f in result.fields}
+    assert present == {"store.name": True, "items[0].price": False, "items[1].price": False,
+                       "note": False}  # fmt: skip
+    assert result.extra_fields == []  # "date" was asked but not annotated: not extra
+    assert summarize([result]).key_presence == pytest.approx(1 / 4)
+
+
+def test_field_group_rates():
+    from llm_opt_lab.metrics import summarize_field_group
+
+    result = score({"store": {"name": None}, "items": GOLD["items"], "note": "invented"})
+    group = summarize_field_group(result.fields)
+    assert group.missed_value_rate == pytest.approx(1 / 3)  # store.name missed
+    assert group.invented_value_rate == 1.0  # note invented
+
+
 def test_summarize_and_per_field():
     scores = [score(GOLD), score({**GOLD, "store": {"name": "x"}}), score(None)]
     stats = summarize(scores)

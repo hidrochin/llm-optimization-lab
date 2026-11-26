@@ -1,4 +1,7 @@
-"""Greedy generation with a Hugging Face model, one sample at a time."""
+"""Greedy generation with a Hugging Face model, one sample at a time.
+
+Every prompt asks for the config's inference request; predictions record its fields.
+"""
 
 from __future__ import annotations
 
@@ -11,6 +14,7 @@ import torch
 from llm_opt_lab.config import ExperimentConfig
 from llm_opt_lab.data import Sample
 from llm_opt_lab.doc_types import DocType
+from llm_opt_lab.field_requests import Request, inference_request
 from llm_opt_lab.hf.loading import DTYPES, is_text_only
 from llm_opt_lab.hf.sft_data import apply_template, chat_messages
 from llm_opt_lab.predictions import Prediction
@@ -41,10 +45,17 @@ class HFPredictor:
         if temperature > 0:
             self.generate_kwargs["temperature"] = temperature
 
+    def request(self, sample: Sample) -> Request:
+        return inference_request(self.doc_types[sample.doc_type], self.config.fields)
+
     def build_inputs(self, sample: Sample) -> Any:
         """Tokenized prompt (and pixel values) on the model's device."""
         messages = chat_messages(
-            sample, self.doc_types[sample.doc_type], self.data_dir, text_only=self.text_only
+            sample,
+            self.doc_types[sample.doc_type],
+            self.data_dir,
+            text_only=self.text_only,
+            request=self.request(sample),
         )
         inputs = apply_template(
             self.processor,
@@ -66,13 +77,19 @@ class HFPredictor:
             output = self.model.generate(**inputs, **self.generate_kwargs)
         except torch.cuda.OutOfMemoryError:
             torch.cuda.empty_cache()
-            return Prediction(id=sample.id, error="CUDA out of memory", prompt_tokens=n_prompt)
+            return Prediction(
+                id=sample.id,
+                error="CUDA out of memory",
+                fields=self.request(sample).paths,
+                prompt_tokens=n_prompt,
+            )
         latency_ms = (time.perf_counter() - start) * 1000
         new_tokens = output[0, n_prompt:]
         text = self.processor.decode(new_tokens, skip_special_tokens=True)
         return Prediction(
             id=sample.id,
             raw_output=text,
+            fields=self.request(sample).paths,
             latency_ms=latency_ms,
             prompt_tokens=n_prompt,
             completion_tokens=int(new_tokens.shape[0]),

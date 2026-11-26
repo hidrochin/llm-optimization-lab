@@ -36,7 +36,7 @@ def test_unknown_field_type():
     with pytest.raises(ValueError, match="unknown field type"):
         normalize_value("x", "currency")
     with pytest.raises(ValueError, match="currency"):
-        check_field_types(DocType("bad", "prompt", {}, {"total": "currency"}))
+        check_field_types(DocType("bad", "instructions", {}, field_types={"total": "currency"}))
 
 
 def test_normalize_record_keeps_structure(doc_types):

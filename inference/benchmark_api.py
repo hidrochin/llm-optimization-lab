@@ -34,6 +34,7 @@ from client import make_client, request_messages, send_chat  # noqa: E402
 from llm_opt_lab.config import load_config  # noqa: E402
 from llm_opt_lab.data import Sample, filter_samples, load_samples  # noqa: E402
 from llm_opt_lab.doc_types import load_doc_types  # noqa: E402
+from llm_opt_lab.field_requests import inference_request  # noqa: E402
 from llm_opt_lab.paths import RunPaths  # noqa: E402
 from llm_opt_lab.results import ServingStats, record_metrics, save_gpu_snapshot  # noqa: E402
 from llm_opt_lab.serving import (  # noqa: E402
@@ -111,11 +112,14 @@ async def benchmark(args: argparse.Namespace) -> int:
         config.data.input_types,
     )[: args.max_requests]
     doc_types = load_doc_types(config.data.doc_types_dir)
+    requests = {name: inference_request(dt, config.fields) for name, dt in doc_types.items()}
     client = make_client(config)
     root = f"http://{serving.host}:{serving.port}"
 
     async def send(sample: Sample):
-        messages = request_messages(sample, doc_types[sample.doc_type], config.data.dir)
+        messages = request_messages(
+            sample, doc_types[sample.doc_type], config.data.dir, requests[sample.doc_type]
+        )
         return await send_chat(client, config, sample.id, messages)
 
     save_gpu_snapshot(paths.logs / "nvidia-smi_benchmark.txt")

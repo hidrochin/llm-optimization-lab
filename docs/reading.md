@@ -112,12 +112,24 @@ that matches our question are usually enough.
 | ⭐ [LayoutLM](https://arxiv.org/abs/1912.13318) (Xu et al., 2019), [LayoutLMv3](https://arxiv.org/abs/2204.08387) (Huang et al., 2022) | Why the position of text matters; the idea behind spatial text |
 | ⭐ [Donut: OCR-free Document Understanding Transformer](https://arxiv.org/abs/2111.15664) (Kim et al., 2021) | Image → JSON without OCR, evaluated on CORD |
 | [CORD dataset](https://github.com/clovaai/cord), [CORD v2 on Hugging Face](https://huggingface.co/datasets/naver-clova-ix/cord-v2) | Our public dev set (CC BY 4.0) |
-| ⭐ [LMDX](https://arxiv.org/abs/2309.10952) (Perot et al., 2023) | LLM extraction from OCR text with coordinates: the closest published analogue of our spatial-text flow |
+| ⭐ [LMDX](https://arxiv.org/abs/2309.10952) (Perot et al., 2023) | LLM extraction from OCR text with coordinates: the closest published analogue of our spatial-text flow. Also the schema-in-the-prompt design with explicit nulls, and the zero-shot (about 67 F1 on CORD) and few-shot curves for new schemas |
 | [DocLLM](https://arxiv.org/abs/2401.00908) (Wang et al., 2023) | A layout-aware LLM that uses bounding boxes |
 | [Scene Text VQA (ANLS)](https://arxiv.org/abs/1905.13648) (Biten et al., 2019) | Edit-distance scoring of text answers: the idea behind our NED metric |
 | [DocVQA](https://arxiv.org/abs/2007.00398), [OCRBench](https://arxiv.org/abs/2305.07895), [OCRBench v2](https://arxiv.org/abs/2501.00321), [CC-OCR](https://arxiv.org/abs/2412.02210), [OmniDocBench](https://arxiv.org/abs/2412.07626) | The benchmarks that model cards quote ([models](models.md)) |
 | [ReceiptBench](https://arxiv.org/abs/2605.22413), [UNIKIE-BENCH](https://arxiv.org/abs/2602.07038), [ExtractBench](https://arxiv.org/abs/2607.29677) (2026) | Key information extraction benchmarks closest to our task |
 | [PaddleOCR-VL](https://arxiv.org/abs/2510.14528) (Cui et al., 2025) | A compact document parser; an option for the OCR step that produces spatial text |
+
+### Extracting fields the model was not trained on (Q9, E20)
+
+| Read | Why it matters here |
+|------|---------------------|
+| ⭐ [GoLLIE](https://arxiv.org/abs/2310.03668) (Sainz et al., 2023) | Labels with guidelines in the prompt; the ablations behind `fields.sampling`: field dropout, descriptions and example values; the gap between seen and unseen labels |
+| [UniversalNER](https://arxiv.org/abs/2308.03279) (Zhou et al., 2023), [GLiNER](https://arxiv.org/abs/2311.08526) (Zaratiana et al., 2023) | Negative labels whose answer is empty (our decoys and nulls) are the largest single gain for unseen labels; teacher-labeled data plus human data beats either alone |
+| ⭐ [NuExtract 2.0 model card](https://huggingface.co/numind/NuExtract-2.0-8B), [VAREX](https://arxiv.org/abs/2603.15118) (IBM, 2026) | A typed JSON template as the request (`verbatim-string` vs `string`); 1,771 unseen form schemas, where an extraction-tuned 2B model reaches 90.8% exact match and its base 9.7%; small models echo schemas with references |
+| [GenKIE](https://arxiv.org/abs/2310.16131) (Cao et al., 2023) | A model trained on a fixed field set reaches 3–5 F1 on a held-out field: the risk of one fixed prompt |
+| [ProMoT](https://arxiv.org/abs/2211.00635) (Wang et al., 2023), [SFT Memorizes, RL Generalizes](https://arxiv.org/abs/2501.17161) (Chu et al., 2025) | Narrow SFT learns the output format first and loses out-of-distribution ability; RL keeps it if the SFT start did not overfit (E18) |
+| [Don't Stop Pretraining](https://arxiv.org/abs/2004.10964) (Gururangan et al., 2020), [Adapting LLMs via Reading Comprehension](https://arxiv.org/abs/2309.09530) (Cheng et al., 2023) | Why MLM-style continued pretraining is not the path: it always preceded labeled fine-tuning, and on decoder LLMs raw-text pretraining hurts prompt following |
+| [Google Document AI custom extractor](https://docs.cloud.google.com/document-ai/docs/ce-with-genai) | The product version: Extract vs Derive fields, zero-shot → few-shot (5–10 documents) → fine-tuning (10–50+) per new field |
 
 ## 9. Vietnamese documents
 

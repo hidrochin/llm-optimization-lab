@@ -67,6 +67,42 @@ class DataConfig(StrictModel):
         return expand_path(value)
 
 
+class FieldSampling(StrictModel):
+    """Training requests that ask for a random subset of each record's annotated fields, so
+    the model learns to read the field list instead of one fixed output (field_requests.py)."""
+
+    full_rate: float = Field(
+        default=0.4, ge=0, le=1, description="Share of samples asking for every field"
+    )
+    min_fields: int = Field(default=1, gt=0)
+    decoy_rate: float = Field(
+        default=0.3, ge=0, le=1, description="Share of samples that add decoy fields"
+    )
+    max_decoys: int = Field(default=2, ge=0)
+    shuffle: bool = Field(default=True, description="Random field order in sampled requests")
+
+
+class FieldsConfig(StrictModel):
+    """Which fields the system prompt asks for (docs/formats.md §3)."""
+
+    # Doc type -> fields (generic paths) or decoys that training never asks for: the "new"
+    # fields of the field-holdout experiment (E20). Evaluation can still ask for them.
+    holdout: dict[str, list[str]] = Field(default_factory=dict)
+    # Inference and evaluation ask for every extract field (full), all but the holdout
+    # (seen), or only the holdout (held_out).
+    inference: Literal["full", "seen", "held_out"] = "full"
+    # Inference requests end with the doc type's first N decoys (in registry order).
+    decoys: int = Field(default=0, ge=0, description="Decoy fields added to inference requests")
+    # None: every training request asks for the same fields (one fixed prompt per doc type).
+    sampling: FieldSampling | None = None
+
+    @model_validator(mode="after")
+    def _check_holdout(self) -> FieldsConfig:
+        if self.inference != "full" and not any(self.holdout.values()):
+            raise ValueError(f"fields.inference {self.inference!r} needs fields.holdout")
+        return self
+
+
 class MethodConfig(StrictModel):
     name: Literal["none", "lora", "qlora"] = "none"
     quantization: Literal["nf4", "fp4"] | None = None
@@ -149,6 +185,10 @@ class QuantizationConfig(StrictModel):
     calibration_split: Split = "calibration"
     # Input types used for calibration; None means data.input_types.
     calibration_input_types: list[InputType] | None = None
+    # full: every calibration sample asks for the inference fields (one prompt per doc type);
+    # sampled: requests drawn as in training (needs fields.sampling), so the quantized model
+    # is calibrated on varied field lists too.
+    calibration_requests: Literal["full", "sampled"] = "full"
     num_calibration_samples: int = Field(default=128, gt=0)
     max_seq_length: int = Field(default=32768, gt=0)
 
@@ -182,6 +222,8 @@ class RewardWeights(StrictModel):
     exact_match: float = Field(default=1.0, ge=0)
     similarity: float = Field(default=0.0, ge=0)
     parse: float = Field(default=0.0, ge=0)
+    value_recall: float = Field(default=0.0, ge=0)
+    null_accuracy: float = Field(default=0.0, ge=0)
 
 
 class RLConfig(StrictModel):
@@ -240,6 +282,7 @@ class ExperimentConfig(StrictModel):
     seed: int = 42
     model: ModelConfig
     data: DataConfig
+    fields: FieldsConfig = Field(default_factory=FieldsConfig)
     method: MethodConfig = Field(default_factory=MethodConfig)
     lora: LoraConfig | None = None
     training: TrainingConfig | None = None
@@ -254,6 +297,9 @@ class ExperimentConfig(StrictModel):
 
     @model_validator(mode="after")
     def _check_sections(self) -> ExperimentConfig:
+        q = self.quantization
+        if q is not None and q.calibration_requests == "sampled" and self.fields.sampling is None:
+            raise ValueError("quantization.calibration_requests 'sampled' needs fields.sampling")
         if self.method.name in ("lora", "qlora"):
             missing = [name for name in ("lora", "training") if getattr(self, name) is None]
             if missing:

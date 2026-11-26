@@ -52,6 +52,11 @@ def test_cord_conversion():
     ]
     assert target["subtotal"] == dict.fromkeys(cord.SUBTOTAL_FIELDS.values())
     assert target["total"]["cash_price"] == "50,000"
+    twice = cord.cord_target(
+        {"sub_total": [{"subtotal_price": "18,182", "tax_price": "1,546"}, {"subtotal_price": "1"}]}
+    )
+    assert twice["subtotal"]["subtotal_price"] == "18,182"
+    assert twice["subtotal"]["tax_price"] == "1,546"
     schema_dir = ROOT / "doc_types"
     validate = load_script("scripts/data/validate.py")
     sample = Sample(
@@ -62,6 +67,50 @@ def test_cord_conversion():
     quad = {"x1": 0, "y1": 0, "x2": 50, "y2": 0, "x3": 50, "y3": 10, "x4": 0, "y4": 10}
     words = cord.cord_words([{"words": [{"text": "Ice", "quad": quad}]}])
     assert words == [Word("Ice", 0, 0, 50, 10)]
+
+
+def test_cord_full_target_keeps_every_field():
+    cord = load_script("scripts/data/convert_cord.py")
+    target = cord.cord_target_full(
+        {
+            "menu": [
+                {"nm": "Tea", "price": "5", "sub": {"nm": "+Ice", "price": "0"}},
+                {"nm": "Bun", "unitprice": "3", "sub": [{"nm": "a"}, {"nm": "b"}]},
+            ],
+            "total": {"total_price": "8", "menuqty_cnt": "2", "emoneyprice": "8"},
+        }
+    )
+    assert [m["sub"] for m in target["menu"]][0] == [
+        {"name": "+Ice", "count": None, "unit_price": None, "price": "0"}
+    ]
+    assert [s["name"] for s in target["menu"][1]["sub"]] == ["a", "b"]
+    assert target["total"]["menu_quantity_count"] == "2"
+    assert target["total"]["emoney_price"] == "8"
+    sample = Sample(
+        id="c", doc_type="cord_receipt_full", input_type="spatial_text", spatial_text="x",
+        target=target,
+    )  # fmt: skip
+    validate = load_script("scripts/data/validate.py")
+    assert validate.validate_samples([sample], load_doc_types(ROOT / "doc_types"), DATA_DIR) == []
+
+
+def test_validate_catches_derive_fields_uneven_lists_and_unreviewed_labels(doc_types):
+    validate = load_script("scripts/data/validate.py")
+    target = {
+        "store": {"name": "An", "address": None},
+        "date": None,
+        "items": [{"name": "x", "quantity": 1, "price": 1}, {"name": "y", "quantity": 1}],
+        "total": 1,
+        "loyalty_points": 3,
+    }
+    sample = Sample(
+        id="s", doc_type="receipt", input_type="spatial_text", spatial_text="x", target=target,
+        label_source="teacher",
+    )  # fmt: skip
+    errors = validate.validate_samples([sample], doc_types, DATA_DIR, reviewed_only=True)
+    assert any("derive fields" in e and "loyalty_points" in e for e in errors)
+    assert any("target/items annotate different keys" in e for e in errors)
+    assert any("not reviewed" in e for e in errors)
 
 
 def test_validate_reports_schema_errors(samples, doc_types):

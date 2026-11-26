@@ -25,6 +25,10 @@ data = [
     "pillow>=10.0",
     "jsonschema>=4.0",
 ]
+# Result figures (scripts/plot_tradeoffs.py): `uv run --group report ...`
+report = [
+    "matplotlib>=3.9",
+]
 # Training environment on the GPU servers: `uv sync --group train`.
 # T-B01 pins versions and points torch at the CUDA wheel index matching the server driver.
 train = [

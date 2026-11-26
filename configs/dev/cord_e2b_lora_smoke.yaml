@@ -5,6 +5,11 @@ run_name: cord_e2b_lora_smoke
 method:
   name: lora
 
+# Training requests ask for a random field subset per sample (decided 2026-11-26, E20 checks
+# it): the smoke run exercises that path. Defaults: 40% full requests, 30% with decoys.
+fields:
+  sampling: {}
+
 lora:
   rank: 16
   alpha: 32

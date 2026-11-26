@@ -22,6 +22,7 @@ from client import make_client, request_messages, send_chat  # noqa: E402
 from llm_opt_lab.config import load_config  # noqa: E402
 from llm_opt_lab.data import Sample, filter_samples, load_samples  # noqa: E402
 from llm_opt_lab.doc_types import load_doc_types  # noqa: E402
+from llm_opt_lab.field_requests import inference_request  # noqa: E402
 from llm_opt_lab.paths import RunPaths  # noqa: E402
 from llm_opt_lab.predictions import Prediction, write_predictions  # noqa: E402
 from llm_opt_lab.serving import RequestResult, run_closed_loop  # noqa: E402
@@ -38,12 +39,16 @@ async def predict(args: argparse.Namespace) -> int:
         config.data.input_types,
     )[: args.limit]
     doc_types = load_doc_types(config.data.doc_types_dir)
+    requests = {name: inference_request(dt, config.fields) for name, dt in doc_types.items()}
+    fields_of = {sample.id: requests[sample.doc_type].paths for sample in samples}
     client = make_client(config)
     done = 0
 
     async def send(sample: Sample) -> RequestResult:
         nonlocal done
-        messages = request_messages(sample, doc_types[sample.doc_type], config.data.dir)
+        messages = request_messages(
+            sample, doc_types[sample.doc_type], config.data.dir, requests[sample.doc_type]
+        )
         result = await send_chat(client, config, sample.id, messages)
         done += 1
         if done % 50 == 0 or done == len(samples):
@@ -59,6 +64,7 @@ async def predict(args: argparse.Namespace) -> int:
                 id=r.id,
                 raw_output=r.text,
                 error=r.error,
+                fields=fields_of[r.id],
                 latency_ms=r.latency_ms,
                 ttft_ms=r.ttft_ms,
                 prompt_tokens=r.prompt_tokens,

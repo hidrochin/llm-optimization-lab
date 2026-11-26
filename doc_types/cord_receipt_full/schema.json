@@ -1,0 +1,215 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "cord_receipt_full",
+  "description": "Every CORD v2 field except void_menu (convert_cord.py --relabel-from): the field-holdout experiment (E20). Same records as cord_receipt. Values are strings as printed.",
+  "type": "object",
+  "properties": {
+    "menu": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": ["string", "null"],
+            "description": "Name of the purchased item.",
+            "examples": ["NASI PUTIH", "1001-Choco Bun"]
+          },
+          "num": {
+            "type": ["string", "null"],
+            "description": "Code or number printed for the item, such as a product code.",
+            "examples": ["0613800221", "2005-"]
+          },
+          "count": {
+            "type": ["string", "null"],
+            "x-field-type": "number",
+            "description": "Quantity of the item, with any marker printed next to it.",
+            "examples": ["2", "1 x", "x1"]
+          },
+          "unit_price": {
+            "type": ["string", "null"],
+            "x-field-type": "number",
+            "description": "Price of one unit of the item.",
+            "examples": ["17,000", "22.000"]
+          },
+          "discount_price": {
+            "type": ["string", "null"],
+            "x-field-type": "number",
+            "description": "Discount printed for this item.",
+            "examples": ["-2,045", "-31,500"]
+          },
+          "price": {
+            "type": ["string", "null"],
+            "x-field-type": "number",
+            "description": "Amount of the item line (quantity times unit price).",
+            "examples": ["20,000", "25.000"]
+          },
+          "item_subtotal": {
+            "type": ["string", "null"],
+            "x-field-type": "number",
+            "description": "Subtotal printed for this item together with its options.",
+            "examples": ["120,000", "60.000"]
+          },
+          "vat_flag": {
+            "type": ["string", "null"],
+            "description": "Mark showing whether tax applies to the item.",
+            "examples": ["10% Tax Included"]
+          },
+          "etc": {
+            "type": ["string", "null"],
+            "description": "Other text printed on the item line, such as a note to the kitchen.",
+            "examples": ["TIM KECAP", "TMBHN CUP"]
+          },
+          "sub": {
+            "type": "array",
+            "description": "Options or add-ons printed under the item.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": ["string", "null"],
+                  "description": "Name of the option or add-on.",
+                  "examples": ["+Ice", "=*MEDIUM*="]
+                },
+                "count": {
+                  "type": ["string", "null"],
+                  "x-field-type": "number",
+                  "description": "Quantity of the option.",
+                  "examples": ["1", "2"]
+                },
+                "unit_price": {
+                  "type": ["string", "null"],
+                  "x-field-type": "number",
+                  "description": "Price of one unit of the option.",
+                  "examples": ["5,000", "4.000"]
+                },
+                "price": {
+                  "type": ["string", "null"],
+                  "x-field-type": "number",
+                  "description": "Amount of the option line.",
+                  "examples": ["4,000", "5.000"]
+                }
+              },
+              "required": ["name", "count", "unit_price", "price"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "name", "num", "count", "unit_price", "discount_price", "price",
+          "item_subtotal", "vat_flag", "etc", "sub"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "subtotal": {
+      "type": "object",
+      "properties": {
+        "subtotal_price": {
+          "type": ["string", "null"],
+          "x-field-type": "number",
+          "description": "Sum of the items before tax, service charge and discounts.",
+          "examples": ["17,000", "27,272"]
+        },
+        "discount_price": {
+          "type": ["string", "null"],
+          "x-field-type": "number",
+          "description": "Discount on the whole receipt.",
+          "examples": ["-2,045", "(0)"]
+        },
+        "service_price": {
+          "type": ["string", "null"],
+          "x-field-type": "number",
+          "description": "Service charge.",
+          "examples": ["11,070", "21,600"]
+        },
+        "other_service_price": {
+          "type": ["string", "null"],
+          "x-field-type": "number",
+          "description": "Other service charges listed separately from the service charge.",
+          "examples": ["27,300"]
+        },
+        "tax_price": {
+          "type": ["string", "null"],
+          "x-field-type": "number",
+          "description": "Tax amount, often labelled Tax, PB1 or PPN.",
+          "examples": ["2,727", "1,636"]
+        },
+        "etc": {
+          "type": ["string", "null"],
+          "description": "Other amounts printed in the subtotal section, such as rounding.",
+          "examples": ["0", "1"]
+        }
+      },
+      "required": [
+        "subtotal_price", "discount_price", "service_price", "other_service_price",
+        "tax_price", "etc"
+      ],
+      "additionalProperties": false
+    },
+    "total": {
+      "type": "object",
+      "properties": {
+        "total_price": {
+          "type": ["string", "null"],
+          "x-field-type": "number",
+          "description": "Total amount due.",
+          "examples": ["20,000", "30.000"]
+        },
+        "total_etc": {
+          "type": ["string", "null"],
+          "description": "Other amounts printed in the total section.",
+          "examples": ["100,000", "4,500"]
+        },
+        "cash_price": {
+          "type": ["string", "null"],
+          "x-field-type": "number",
+          "description": "Amount paid in cash.",
+          "examples": ["50,000", "100.000"]
+        },
+        "change_price": {
+          "type": ["string", "null"],
+          "x-field-type": "number",
+          "description": "Change given back to the customer.",
+          "examples": ["30.000", "4,000"]
+        },
+        "credit_card_price": {
+          "type": ["string", "null"],
+          "x-field-type": "number",
+          "description": "Amount paid by credit or debit card.",
+          "examples": ["113,000.00", "57.200"]
+        },
+        "emoney_price": {
+          "type": ["string", "null"],
+          "x-field-type": "number",
+          "description": "Amount paid with e-money or a digital wallet.",
+          "examples": ["37,000", "78.000"]
+        },
+        "menu_type_count": {
+          "type": ["string", "null"],
+          "x-field-type": "number",
+          "description": "Number of different items, as printed on the receipt.",
+          "examples": ["2", "3"]
+        },
+        "menu_quantity_count": {
+          "type": ["string", "null"],
+          "x-field-type": "number",
+          "description": "Total quantity of items, as printed on the receipt.",
+          "examples": ["2", "4"]
+        }
+      },
+      "required": [
+        "total_price", "total_etc", "cash_price", "change_price", "credit_card_price",
+        "emoney_price", "menu_type_count", "menu_quantity_count"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": ["menu", "subtotal", "total"],
+  "additionalProperties": false,
+  "x-decoys": [
+    {"name": "container_number", "description": "Number of the shipping container."},
+    {"name": "port_of_loading", "description": "Port where the goods were loaded on the vessel."},
+    {"name": "invoice_due_date", "description": "Date by which the invoice must be paid."},
+    {"name": "consignee_name", "description": "Name of the party receiving the shipped goods."}
+  ]
+}

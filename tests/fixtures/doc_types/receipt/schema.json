@@ -6,12 +6,17 @@
     "store": {
       "type": "object",
       "properties": {
-        "name": { "type": ["string", "null"] },
+        "name": { "type": ["string", "null"], "description": "Store name as printed." },
         "address": { "type": ["string", "null"] }
       },
       "required": ["name", "address"]
     },
-    "date": { "type": ["string", "null"], "x-field-type": "date" },
+    "date": {
+      "type": ["string", "null"],
+      "x-field-type": "date",
+      "description": "Purchase date.",
+      "examples": ["05/01/2026"]
+    },
     "items": {
       "type": "array",
       "items": {
@@ -24,7 +29,16 @@
         "required": ["name", "quantity", "price"]
       }
     },
-    "total": { "type": ["number", "null"], "x-field-type": "number" }
+    "total": { "type": ["number", "null"], "x-field-type": "number", "description": "Amount paid." },
+    "loyalty_points": {
+      "type": ["number", "null"],
+      "x-mode": "derive",
+      "description": "Points earned, computed from the total by the customer's rule."
+    }
   },
-  "required": ["store", "date", "items", "total"]
+  "required": ["store", "date", "items", "total"],
+  "x-decoys": [
+    { "name": "container_number", "description": "Number of the shipping container." },
+    { "name": "vessel_name", "description": "Name of the ship." }
+  ]
 }
